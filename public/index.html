@@ -86,6 +86,8 @@ button,input{font-family:'Outfit',sans-serif}
 .sv-photo{width:100%;height:100%;object-fit:cover;display:none}
 .sv-nophoto{text-align:center;color:var(--muted)}
 .sv-nophoto .big{font-family:'Bebas Neue',sans-serif;font-size:44px;color:var(--text);letter-spacing:3px;display:block;margin-bottom:6px}
+#sv-toggle{position:absolute;bottom:10px;left:10px;z-index:998;padding:6px 12px;background:rgba(8,13,24,.85);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:11px;font-weight:600;color:var(--text);cursor:pointer;pointer-events:all;transition:all .15s}
+#sv-toggle:hover{border-color:var(--accent);color:var(--accent)}
 #game-hud{position:absolute;top:10px;left:10px;right:10px;display:flex;align-items:center;gap:7px;pointer-events:none;z-index:999}
 .hud-pill{padding:5px 12px;background:rgba(8,13,24,.82);backdrop-filter:blur(10px);border:1px solid rgba(34,211,238,.15);border-radius:20px;font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace}
 .hud-round{color:var(--accent)}
@@ -340,6 +342,7 @@ button,input{font-family:'Outfit',sans-serif}
 <div id="s-game" class="screen hidden">
   <div id="sv-wrap">
     <iframe id="sv-frame" allowfullscreen></iframe>
+    <button id="sv-toggle" onclick="toggleSvMode()">🗺️ Přepnout pohled</button>
     <div id="sv-overlay">
       <img id="sv-photo" class="sv-photo" alt=""/>
       <div id="sv-nophoto" class="sv-nophoto hidden">
@@ -607,25 +610,52 @@ function onRoundStart(data){
   updateScoreMini();
 }
 
+let svViewMode='streetview'; // 'streetview' or 'place'
+
 function loadStreetView(data){
   const frame=document.getElementById('sv-frame');
   const overlay=document.getElementById('sv-overlay');
   const photo=document.getElementById('sv-photo');
   const noPhoto=document.getElementById('sv-nophoto');
+  const toggle=document.getElementById('sv-toggle');
   const apiKey=state.apiKey||localStorage.getItem('cgeo_key')||'';
 
+  // Nature locations often lack Street View → default to place mode
+  svViewMode = data.locCat==='nature' ? 'place' : 'streetview';
+
   if(apiKey){
-    const h=((data.locHeading+(Math.random()*50-25))|0+360)%360;
-    frame.src=`https://www.google.com/maps/embed/v1/streetview?key=${encodeURIComponent(apiKey)}&location=${data.locLat},${data.locLng}&heading=${h}&pitch=5&fov=90`;
+    setSvFrame(apiKey, data.locLat, data.locLng, data.locHeading);
     overlay.style.display='none';
     frame.style.display='block';
+    toggle.style.display='block';
   }else{
     frame.style.display='none';
+    toggle.style.display='none';
     overlay.style.display='flex';
     photo.style.display='none';
     noPhoto.classList.remove('hidden');
     document.getElementById('sv-city-name').textContent=CAT_LABELS[data.locCat]||data.locCat;
   }
+}
+
+function setSvFrame(apiKey, lat, lng, heading){
+  const frame=document.getElementById('sv-frame');
+  const k=encodeURIComponent(apiKey);
+  if(svViewMode==='streetview'){
+    const h=((heading+(Math.random()*50-25))|0+360)%360;
+    frame.src=`https://www.google.com/maps/embed/v1/streetview?key=${k}&location=${lat},${lng}&heading=${h}&pitch=5&fov=90`;
+  } else {
+    frame.src=`https://www.google.com/maps/embed/v1/view?key=${k}&center=${lat},${lng}&zoom=14&maptype=satellite`;
+  }
+}
+
+function toggleSvMode(){
+  const apiKey=state.apiKey||localStorage.getItem('cgeo_key')||'';
+  if(!apiKey||!state.currentLoc) return;
+  svViewMode = svViewMode==='streetview' ? 'place' : 'streetview';
+  const btn=document.getElementById('sv-toggle');
+  btn.textContent = svViewMode==='streetview' ? '🛰️ Satelitní pohled' : '🌐 Street View';
+  setSvFrame(apiKey, state.currentLoc.la, state.currentLoc.lo, state.currentLoc.h);
 }
 
 // ══ GUESS MAP ══
