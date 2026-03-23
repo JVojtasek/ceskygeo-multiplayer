@@ -193,10 +193,12 @@ function resolveRound(room) {
     isLast: room.round >= room.locs.length - 1
   });
 
-  // Auto-advance after 8s if all players are ready
-  room.autoAdvance = setTimeout(() => {
-    if (room.phase === 'roundResult') advanceRound(room);
-  }, 10000);
+  // Auto-advance after 10s (multiplayer only — solo waits for player click)
+  if (!room.settings.solo) {
+    room.autoAdvance = setTimeout(() => {
+      if (room.phase === 'roundResult') advanceRound(room);
+    }, 10000);
+  }
 }
 
 function advanceRound(room) {
@@ -243,8 +245,27 @@ io.on('connection', (socket) => {
     room.players.set(socket.id, player);
     socket.data.roomCode = room.code;
     socket.data.name = name;
-    socket.emit('roomCreated', { code: room.code, state: getRoomSafeState(room) });
-    console.log(`[ROOM] ${room.code} created by ${name}`);
+
+    if (settings.solo) {
+      // Solo mode: auto-start immediately, skip waiting room
+      room.phase = 'playing';
+      player.ready = true;
+      const loc = room.locs[0];
+      socket.emit('soloStart', {
+        round: 0,
+        totalRounds: room.locs.length,
+        locCat: loc.cat,
+        locHeading: loc.h,
+        locLat: loc.la,
+        locLng: loc.lo,
+        timerSec: room.settings.timerSec
+      });
+      startRoundTimer(room);
+      console.log(`[SOLO] ${room.code} started by ${name}`);
+    } else {
+      socket.emit('roomCreated', { code: room.code, state: getRoomSafeState(room) });
+      console.log(`[ROOM] ${room.code} created by ${name}`);
+    }
   });
 
   // Join room
@@ -317,6 +338,13 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'roundResult') return;
     const player = room.players.get(socket.id);
     if (player) player.readyNext = true;
+
+    // Solo: advance immediately
+    if (room.settings.solo) {
+      room.players.forEach(p => p.readyNext = false);
+      advanceRound(room);
+      return;
+    }
 
     const allNext = [...room.players.values()].every(p => p.readyNext);
     if (allNext) {
