@@ -150,7 +150,7 @@ button,input{font-family:'Outfit',sans-serif}
 /* FINAL */
 #s-final{height:100vh;display:flex;flex-direction:column}
 #final-map{flex:1;width:100%}
-#final-panel{flex:0 0 auto;padding:1rem 1.2rem;background:var(--panel);border-top:1px solid var(--border)}
+#final-panel{flex:0 0 auto;padding:1rem 1.2rem;background:var(--panel);border-top:1px solid var(--border);max-height:55vh;overflow-y:auto}
 .podium{display:flex;gap:8px;margin-bottom:.8rem}
 .podium-card{flex:1;padding:10px;border-radius:12px;border:1px solid var(--border);background:var(--panel2);text-align:center}
 .podium-card.gold{border-color:var(--gold);background:rgba(245,158,11,.07)}
@@ -158,9 +158,31 @@ button,input{font-family:'Outfit',sans-serif}
 .podium-rank{font-size:24px;margin-bottom:3px}
 .podium-name{font-size:12px;font-weight:700;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .podium-score{font-family:'Bebas Neue',sans-serif;font-size:30px;color:var(--gold)}
+/* Stats grid */
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:.8rem}
+.stat-card{padding:10px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;text-align:center}
+.stat-val{font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent)}
+.stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.stat-card.best .stat-val{color:var(--green)}
+.stat-card.worst .stat-val{color:var(--red)}
+/* Accuracy bar */
+.accuracy-wrap{margin-bottom:.8rem}
+.accuracy-bar{height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:4px}
+.accuracy-fill{height:100%;border-radius:4px;transition:width .8s ease}
+.accuracy-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.accuracy-label strong{color:var(--text)}
 .final-btns{display:flex;gap:8px}
 .btn-primary{padding:10px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#000;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
 .btn-secondary{padding:10px 16px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
+/* Streak */
+.streak-toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:3000;padding:8px 18px;background:rgba(245,158,11,.15);border:1px solid var(--gold);border-radius:12px;font-size:14px;font-weight:700;color:var(--gold);pointer-events:none;animation:streakIn .4s ease,fadeOut .4s ease 1.6s forwards}
+@keyframes streakIn{from{opacity:0;transform:translateX(-50%) translateY(-20px) scale(.8)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+@keyframes fadeOut{to{opacity:0;transform:translateX(-50%) translateY(-10px)}}
+/* Confetti */
+.confetti-piece{position:fixed;z-index:3001;width:8px;height:8px;border-radius:2px;pointer-events:none;animation:confettiFall 2s ease forwards}
+@keyframes confettiFall{0%{opacity:1;transform:translateY(0) rotate(0deg)}100%{opacity:0;transform:translateY(100vh) rotate(720deg)}}
+/* Solo HUD score */
+.hud-score{color:var(--gold)}
 
 /* Leaflet dark */
 .leaflet-container{background:#111827}
@@ -353,6 +375,7 @@ button,input{font-family:'Outfit',sans-serif}
     <div id="game-hud">
       <div class="hud-pill hud-round" id="hud-round">Kolo 1/10</div>
       <div class="hud-pill hud-cat" id="hud-cat"></div>
+      <div class="hud-pill hud-score" id="hud-score" style="display:none">0</div>
       <div class="hud-right">
         <div class="timer-wrap hidden" id="timer-wrap">
           <svg class="timer-svg" viewBox="0 0 40 40">
@@ -393,6 +416,7 @@ button,input{font-family:'Outfit',sans-serif}
   <div id="final-map"></div>
   <div id="final-panel">
     <div class="podium" id="final-podium"></div>
+    <div id="final-stats"></div>
     <div class="final-btns">
       <button class="btn-primary" onclick="location.reload()">🔄 Hrát znovu</button>
     </div>
@@ -420,7 +444,8 @@ let state={
   currentLoc:null, timerSec:0,
   gLat:null, gLng:null,
   readyForNext:false,
-  players:[]
+  players:[],
+  myScore:0, streak:0, roundHistory:[]
 };
 let gMap=null,rMap=null,fMap=null,gMarker=null,timerInterval=null;
 
@@ -591,6 +616,8 @@ if(urlJoin){
 // ══ ROUND START ══
 function onRoundStart(data){
   show('s-game');
+  // Reset on first round
+  if(data.round===0){state.myScore=0;state.streak=0;state.roundHistory=[];}
   state.currentLoc={la:data.locLat,lo:data.locLng,cat:data.locCat,h:data.locHeading};
   state.timerSec=data.timerSec||0;
   state.gLat=null;state.gLng=null;state.readyForNext=false;
@@ -713,7 +740,14 @@ function submitGuess(){
 // ══ SCORE MINI ══
 function updateScoreMini(){
   const mini=document.getElementById('score-mini');
-  if(state.solo){mini.innerHTML='';return;} // hide in solo
+  const hudScore=document.getElementById('hud-score');
+  if(state.solo){
+    mini.innerHTML='';
+    hudScore.style.display='block';
+    hudScore.textContent=`⭐ ${state.myScore.toLocaleString('cs')}`;
+    return;
+  }
+  hudScore.style.display='none';
   const sorted=[...state.players].sort((a,b)=>b.score-a.score);
   mini.innerHTML=sorted.map((p,i)=>{
     const color=COLORS[state.players.findIndex(x=>x.id===p.id)%COLORS.length];
@@ -727,8 +761,17 @@ function onRoundResult({loc,results,round,totalRounds,isLast}){
   stopTimer();
   state.currentLoc=loc;
   state.players=results.map(r=>({id:r.id,name:r.name,score:r.totalScore,guessedThisRound:false}));
+
+  // Track my score + streak + history
+  const myResult=results.find(r=>r.id===state.myId);
+  if(myResult){
+    state.myScore=myResult.totalScore;
+    state.roundHistory.push({round,loc,dist:myResult.dist,score:myResult.score,lat:myResult.lat,lng:myResult.lng});
+    if(myResult.score>=3000) state.streak++; else state.streak=0;
+  }
+
   show('s-result');
-  document.getElementById('r-loc-name').innerHTML=`📍 ${loc.n} <span class="verdict ${results.find(r=>r.id===state.myId)?.dist<=60?'ok':'bad'}">${results.find(r=>r.id===state.myId)?.dist.toFixed(1)} km</span>`;
+  document.getElementById('r-loc-name').innerHTML=`📍 ${loc.n} <span class="verdict ${myResult?.dist<=60?'ok':'bad'}">${myResult?.dist.toFixed(1)} km</span>`;
 
   const table=document.getElementById('r-table');
   table.innerHTML='';
@@ -749,24 +792,68 @@ function onRoundResult({loc,results,round,totalRounds,isLast}){
   const btn=document.getElementById('r-next-btn');
   btn.disabled=false;
   btn.textContent=isLast?'🏆 Zobrazit výsledky':'Další kolo →';
-  document.getElementById('r-ready-count').textContent=state.solo?'':'';
+  document.getElementById('r-ready-count').textContent='';
 
-  // Build result map
+  // Streak toast
+  if(state.streak>=2){
+    showStreak(state.streak);
+  }
+  // Confetti for great score
+  if(myResult && myResult.score>=4000){
+    spawnConfetti();
+  }
+
+  // Build result map with animated zoom
   setTimeout(()=>{
     if(rMap){try{rMap.remove()}catch(e){}}
     rMap=L.map('result-map',{zoomControl:true,attributionControl:false});
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(rMap);
-    L.marker([loc.la,loc.lo],{icon:mkPin('#10b981','✓')}).addTo(rMap).bindPopup(`<strong>${loc.n}</strong>`).openPopup();
-    const pts=[[loc.la,loc.lo]];
-    results.forEach((r,i)=>{
-      if(r.lat==null)return;
-      const color=COLORS[i%COLORS.length];
-      L.marker([r.lat,r.lng],{icon:mkPin(color,i+1)}).addTo(rMap).bindPopup(`${r.name}: ${r.dist.toFixed(1)} km · ${r.score.toLocaleString('cs')} bodů`);
-      L.polyline([[loc.la,loc.lo],[r.lat,r.lng]],{color,weight:2,dashArray:'7 4',opacity:.75}).addTo(rMap);
-      pts.push([r.lat,r.lng]);
-    });
-    rMap.fitBounds(L.latLngBounds(pts).pad(.3));
+
+    // Start zoomed on guess, then fly to show both
+    const myGuess=myResult&&myResult.lat!=null?[myResult.lat,myResult.lng]:[loc.la,loc.lo];
+    rMap.setView(myGuess,10);
+
+    setTimeout(()=>{
+      L.marker([loc.la,loc.lo],{icon:mkPin('#10b981','✓')}).addTo(rMap).bindPopup(`<strong>${loc.n}</strong>`).openPopup();
+      const pts=[[loc.la,loc.lo]];
+      results.forEach((r,i)=>{
+        if(r.lat==null)return;
+        const color=COLORS[i%COLORS.length];
+        L.marker([r.lat,r.lng],{icon:mkPin(color,i+1)}).addTo(rMap).bindPopup(`${r.name}: ${r.dist.toFixed(1)} km · ${r.score.toLocaleString('cs')} bodů`);
+        L.polyline([[loc.la,loc.lo],[r.lat,r.lng]],{color,weight:2,dashArray:'7 4',opacity:.75}).addTo(rMap);
+        pts.push([r.lat,r.lng]);
+      });
+      rMap.flyToBounds(L.latLngBounds(pts).pad(.3),{duration:1.2});
+    },300);
   },60);
+}
+
+// ══ STREAK ══
+function showStreak(n){
+  const labels=['','','🔥 Double!','🔥🔥 Triple!','🔥🔥🔥 Quad!','⚡ PENTA!'];
+  const el=document.createElement('div');
+  el.className='streak-toast';
+  el.textContent=labels[Math.min(n,5)]||`⚡ ${n}× Streak!`;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),2200);
+}
+
+// ══ CONFETTI ══
+function spawnConfetti(){
+  const colors=['#22d3ee','#f59e0b','#10b981','#a78bfa','#f43f5e','#60a5fa'];
+  for(let i=0;i<40;i++){
+    const el=document.createElement('div');
+    el.className='confetti-piece';
+    el.style.left=Math.random()*100+'vw';
+    el.style.top=-10+'px';
+    el.style.background=colors[Math.floor(Math.random()*colors.length)];
+    el.style.animationDelay=Math.random()*0.8+'s';
+    el.style.animationDuration=(1.5+Math.random())+'s';
+    el.style.width=(5+Math.random()*6)+'px';
+    el.style.height=(5+Math.random()*6)+'px';
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(),3000);
+  }
 }
 
 function nextRound(){
@@ -779,6 +866,8 @@ function nextRound(){
 // ══ GAME FINISHED ══
 function onGameFinished({finalScores,locs}){
   show('s-final');
+  spawnConfetti(); // celebrate!
+
   const podium=document.getElementById('final-podium');
   podium.innerHTML=finalScores.slice(0,4).map((p,i)=>{
     const color=COLORS[state.players.findIndex(x=>x.id===p.id)%COLORS.length]||COLORS[i%COLORS.length];
@@ -790,13 +879,65 @@ function onGameFinished({finalScores,locs}){
       <div class="podium-score">${p.score.toLocaleString('cs')}</div>
     </div>`;
   }).join('');
+
+  // ── Stats ──
+  const statsEl=document.getElementById('final-stats');
+  const h=state.roundHistory;
+  if(h.length>0){
+    const dists=h.map(r=>r.dist);
+    const scores=h.map(r=>r.score);
+    const avgDist=dists.reduce((a,b)=>a+b,0)/dists.length;
+    const bestRound=h.reduce((a,b)=>b.score>a.score?b:a);
+    const worstRound=h.reduce((a,b)=>b.score<a.score?b:a);
+    const maxScore=locs.length*5000;
+    const accuracy=Math.round((state.myScore/maxScore)*100);
+    const grade=accuracy>=90?'S':accuracy>=75?'A':accuracy>=60?'B':accuracy>=40?'C':'D';
+    const gradeColor=accuracy>=75?'var(--green)':accuracy>=50?'var(--gold)':'var(--red)';
+
+    statsEl.innerHTML=`
+      <div class="accuracy-wrap">
+        <div class="accuracy-label"><span>Přesnost</span><strong style="color:${gradeColor}">${accuracy}% · Hodnocení ${grade}</strong></div>
+        <div class="accuracy-bar"><div class="accuracy-fill" style="width:${accuracy}%;background:${gradeColor}"></div></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-val">${avgDist.toFixed(1)}</div><div class="stat-label">Prům. vzdálenost (km)</div></div>
+        <div class="stat-card best"><div class="stat-val">${bestRound.score.toLocaleString('cs')}</div><div class="stat-label">Nejlepší kolo</div></div>
+        <div class="stat-card worst"><div class="stat-val">${worstRound.score.toLocaleString('cs')}</div><div class="stat-label">Nejhorší kolo</div></div>
+      </div>`;
+  }
+
+  // ── Map with clickable pins ──
   setTimeout(()=>{
     if(fMap){try{fMap.remove()}catch(e){}}
     fMap=L.map('final-map',{zoomControl:true,attributionControl:false}).setView([49.75,15.6],6);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(fMap);
+
     locs.forEach((loc,i)=>{
-      L.marker([loc.la,loc.lo],{icon:mkPin(COLORS[i%COLORS.length],i+1)}).addTo(fMap)
-        .bindTooltip(`${i+1}. ${loc.n}`);
+      const rh=state.roundHistory[i];
+      const roundNum=i+1;
+      let popupHtml=`<div style="min-width:160px">
+        <strong style="font-size:14px">${roundNum}. ${loc.n}</strong><br>
+        <span style="font-size:11px;color:#64748b">${CAT_LABELS[loc.cat]||loc.cat}</span>`;
+      if(rh){
+        const distColor=rh.dist<=20?'#10b981':rh.dist<=60?'#f59e0b':'#f43f5e';
+        popupHtml+=`<hr style="border:none;border-top:1px solid #1e3655;margin:6px 0">
+          <div style="display:flex;justify-content:space-between;font-size:12px">
+            <span>Vzdálenost:</span><strong style="color:${distColor}">${rh.dist.toFixed(1)} km</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px">
+            <span>Body:</span><strong style="color:#22d3ee">${rh.score.toLocaleString('cs')}</strong>
+          </div>`;
+      }
+      popupHtml+='</div>';
+
+      L.marker([loc.la,loc.lo],{icon:mkPin(COLORS[i%COLORS.length],roundNum)}).addTo(fMap)
+        .bindPopup(popupHtml,{className:'dark-popup'});
+
+      // Show guess pin + line if available
+      if(rh && rh.lat!=null){
+        L.marker([rh.lat,rh.lng],{icon:mkPin('#f43f5e','?')}).addTo(fMap);
+        L.polyline([[loc.la,loc.lo],[rh.lat,rh.lng]],{color:'#f43f5e',weight:1.5,dashArray:'5 4',opacity:.5}).addTo(fMap);
+      }
     });
   },60);
 }
