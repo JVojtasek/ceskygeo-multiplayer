@@ -266,7 +266,7 @@ button,input{font-family:'Outfit',sans-serif}
         <span class="chip on" data-cat="city">🏙️ Velká města</span>
         <span class="chip on" data-cat="town">🏘️ Malá města</span>
         <span class="chip on" data-cat="village">🏡 Vesnice</span>
-        <span class="chip on" data-cat="nature">🌲 Příroda</span>
+        <span class="chip on" data-cat="landmark">🏰 Památky</span>
       </div>
     </div>
     <button class="btn-main btn-solo" onclick="startSolo()">🎯 Hrát solo →</button>
@@ -322,7 +322,7 @@ button,input{font-family:'Outfit',sans-serif}
         <span class="chip on" data-cat="city">🏙️ Velká města</span>
         <span class="chip on" data-cat="town">🏘️ Malá města</span>
         <span class="chip on" data-cat="village">🏡 Vesnice</span>
-        <span class="chip on" data-cat="nature">🌲 Příroda</span>
+        <span class="chip on" data-cat="landmark">🏰 Památky</span>
       </div>
     </div>
     <button class="btn-main" onclick="createRoom()">👥 Vytvořit místnost →</button>
@@ -430,7 +430,7 @@ button,input{font-family:'Outfit',sans-serif}
 
 <script>
 const COLORS=['#22d3ee','#a78bfa','#f59e0b','#10b981','#f43f5e','#60a5fa','#fb923c','#e879f9'];
-const CAT_LABELS={city:"Velké město",town:"Malé město",village:"Vesnice",nature:"Příroda"};
+const CAT_LABELS={city:"Velké město",town:"Malé město",village:"Vesnice",landmark:"Památka"};
 const CIRC_R=20, CIRC=2*Math.PI*CIRC_R; // ~125.6
 
 let socket=null;
@@ -438,7 +438,7 @@ let state={
   myId:null, myName:'', roomCode:'',
   mode:'sv', apiKey:'',
   solo:false,
-  cats:new Set(['city','town','village','nature']),
+  cats:new Set(['city','town','village','landmark']),
   currentLoc:null, timerSec:0,
   gLat:null, gLng:null,
   readyForNext:false,
@@ -651,8 +651,7 @@ function loadStreetView(data){
   const toggle=document.getElementById('sv-toggle');
   const apiKey=state.apiKey||localStorage.getItem('cgeo_key')||'';
 
-  // Nature locations often lack Street View → default to place mode
-  svViewMode = data.locCat==='nature' ? 'place' : 'streetview';
+  svViewMode = 'streetview';
 
   if(apiKey){
     setSvFrame(apiKey, data.locLat, data.locLng, data.locHeading);
