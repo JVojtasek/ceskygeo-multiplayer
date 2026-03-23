@@ -315,6 +315,7 @@ io.on('connection', (socket) => {
   // Submit guess
   socket.on('submitGuess', ({ lat, lng }) => {
     const room = rooms.get(socket.data.roomCode);
+    console.log(`[GUESS] ${socket.id} submitted guess, room=${socket.data.roomCode}, phase=${room?.phase}, guesses=${room?.guesses.size}/${room?.players.size}`);
     if (!room || room.phase !== 'playing') return;
     if (room.guesses.has(socket.id)) return; // already guessed
 
@@ -327,7 +328,9 @@ io.on('connection', (socket) => {
     });
 
     // All players guessed → resolve immediately
+    console.log(`[GUESS] After set: guesses=${room.guesses.size}/${room.players.size}`);
     if (room.guesses.size >= room.players.size) {
+      console.log(`[RESOLVE] All guessed, resolving round ${room.round}`);
       resolveRound(room);
     }
   });

@@ -516,9 +516,12 @@ function getSettings(prefix){
 // ══ SOCKET ══
 function initSocket(){
   socket=io();
-  socket.on('connect',()=>{state.myId=socket.id;});
-  socket.on('roomCreated',({code,state:s})=>{state.roomCode=code;enterWaiting(s);});
-  socket.on('roomJoined',({code,state:s})=>{state.roomCode=code;enterWaiting(s);});
+  socket.on('connect',()=>{
+    state.myId=socket.id;
+    console.log('[CGeo] Connected as',socket.id);
+  });
+  socket.on('roomCreated',({code,state:s})=>{state.roomCode=code;state.myId=socket.id;enterWaiting(s);});
+  socket.on('roomJoined',({code,state:s})=>{state.roomCode=code;state.myId=socket.id;enterWaiting(s);});
   socket.on('error',({msg})=>{document.getElementById('lobby-err').textContent=msg;});
   socket.on('playerJoined',({name,state:s})=>{updateWaiting(s);addChat('','🟢 '+name+' se připojil/a');});
   socket.on('playerLeft',({name,state:s})=>{updateWaiting(s);addChat('','🔴 '+name+' odešel/a');});
@@ -533,7 +536,10 @@ function initSocket(){
   socket.on('gameFinished',onGameFinished);
   socket.on('chat',({name,msg})=>addChat(name,msg));
   // Solo: auto-start (skip waiting room)
-  socket.on('soloStart',onRoundStart);
+  socket.on('soloStart',(data)=>{
+    state.myId=socket.id; // ensure myId is set before round starts
+    onRoundStart(data);
+  });
 }
 
 // ══ SOLO ══
