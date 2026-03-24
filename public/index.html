@@ -147,14 +147,31 @@ button,input{font-family:'Outfit',sans-serif}
 
 /* Mode grid */
 .mode-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1}
-.mode-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:16px 10px 12px;text-align:center;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;overflow:hidden}
-.mode-card:hover{background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.25);transform:translateY(-2px);box-shadow:0 6px 24px rgba(34,211,238,.08)}
-.mode-card.selected{background:rgba(34,211,238,.1);border-color:var(--accent);box-shadow:0 0 24px rgba(34,211,238,.12)}
-.mode-card-icon{font-size:26px}
-.mode-card-title{font-size:13px;font-weight:800;color:#fff}
-.mode-card-desc{font-size:10px;color:var(--muted);line-height:1.3}
+.mode-card{position:relative;overflow:hidden;border-radius:16px;padding:0;text-align:center;cursor:pointer;transition:all .25s;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;border:2px solid transparent;min-height:0}
+.mode-card::before{content:'';position:absolute;inset:0;z-index:0;opacity:.7;transition:opacity .3s}
+.mode-card::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 20%,rgba(0,0,0,.75) 100%);z-index:1}
+.mode-card:hover{transform:translateY(-3px);box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.mode-card:hover::before{opacity:1}
+.mode-card.selected{border-color:var(--accent);box-shadow:0 0 30px rgba(34,211,238,.2)}
+.mode-card-inner{position:relative;z-index:2;padding:12px 10px 14px;width:100%}
+.mode-card-icon{font-size:30px;margin-bottom:2px;filter:drop-shadow(0 2px 8px rgba(0,0,0,.5))}
+.mode-card-title{font-size:15px;font-weight:900;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6);font-family:'Bebas Neue',sans-serif;letter-spacing:1.5px}
+.mode-card-desc{font-size:10px;color:rgba(255,255,255,.7);line-height:1.3;text-shadow:0 1px 4px rgba(0,0,0,.5)}
 .mode-card.locked{opacity:.4;pointer-events:none}
 .mode-card.locked::after{content:'🔒';position:absolute;top:8px;right:8px;font-size:14px}
+/* Unique card backgrounds */
+.mode-card:nth-child(1)::before{background:linear-gradient(135deg,#0f766e,#134e4a,#042f2e);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(2)::before{background:linear-gradient(135deg,#9f1239,#881337,#4c0519);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(3)::before{background:linear-gradient(135deg,#7c3aed,#6d28d9,#3b0764);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(4)::before{background:linear-gradient(135deg,#ea580c,#c2410c,#7c2d12);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(5)::before{background:linear-gradient(135deg,#0369a1,#075985,#0c4a6e);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(6)::before{background:linear-gradient(135deg,#15803d,#166534,#052e16);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(7)::before{background:linear-gradient(135deg,#b45309,#92400e,#451a03);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(8)::before{background:linear-gradient(135deg,#0e7490,#155e75,#083344);background-size:200% 200%;animation:shimmer 8s ease infinite}
+.mode-card:nth-child(9)::before{background:linear-gradient(135deg,#eab308,#ca8a04,#713f12);background-size:200% 200%;animation:shimmer 8s ease infinite}
+/* Decorative shapes on cards */
+.mode-card .card-deco{position:absolute;z-index:0;opacity:.12;font-size:80px;top:-10px;right:-10px;transform:rotate(15deg);pointer-events:none}
+@keyframes shimmer{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
 
 /* Mini map in corner */
 #guess-wrap{position:absolute;bottom:20px;right:20px;width:280px;height:200px;z-index:900;border-radius:14px;overflow:hidden;border:2px solid rgba(34,211,238,.3);box-shadow:0 8px 32px rgba(0,0,0,.6);transition:width .35s ease,height .35s ease;background:#111827;transform-origin:bottom right}
@@ -356,49 +373,76 @@ button,input{font-family:'Outfit',sans-serif}
       <h2>Herní režimy</h2>
       <div class="mode-grid" id="mode-grid">
         <div class="mode-card selected" onclick="selectMode('classic')">
-          <div class="mode-card-icon">🎯</div>
-          <div class="mode-card-title">Klasická</div>
-          <div class="mode-card-desc">Street View + tip na mapě</div>
+          <span class="card-deco">🌍</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">🎯</div>
+            <div class="mode-card-title">KLASICKÁ HRA</div>
+            <div class="mode-card-desc">Street View + tip na mapě</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('duel')">
-          <div class="mode-card-icon">⚔️</div>
-          <div class="mode-card-title">Duel 1v1</div>
-          <div class="mode-card-desc">Best of 5, kdo tipne blíž</div>
+          <span class="card-deco">⚔️</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">⚔️</div>
+            <div class="mode-card-title">DUEL 1v1</div>
+            <div class="mode-card-desc">Best of 5, kdo tipne blíž</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('battleRoyale')">
-          <div class="mode-card-icon">💀</div>
-          <div class="mode-card-title">Battle Royale</div>
-          <div class="mode-card-desc">Nejhorší tip = eliminace</div>
+          <span class="card-deco">💀</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">💀</div>
+            <div class="mode-card-title">BATTLE ROYALE</div>
+            <div class="mode-card-desc">Nejhorší tip = eliminace</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('streak')">
-          <div class="mode-card-icon">🔥</div>
-          <div class="mode-card-title">Streak</div>
-          <div class="mode-card-desc">Hraj dokud netrefíš vedle</div>
+          <span class="card-deco">🔥</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">🔥</div>
+            <div class="mode-card-title">STREAK</div>
+            <div class="mode-card-desc">Hraj dokud netrefíš vedle</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('daily')">
-          <div class="mode-card-icon">📅</div>
-          <div class="mode-card-title">Denní výzva</div>
-          <div class="mode-card-desc">5 lokací, sdílej výsledek</div>
+          <span class="card-deco">📅</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">📅</div>
+            <div class="mode-card-title">DENNÍ VÝZVA</div>
+            <div class="mode-card-desc">5 lokací, sdílej výsledek</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('geotour')">
-          <div class="mode-card-icon">🗺️</div>
-          <div class="mode-card-title">GeoTour</div>
-          <div class="mode-card-desc">Procestuj Česko po trase</div>
+          <span class="card-deco">🗺️</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">🗺️</div>
+            <div class="mode-card-title">GEOTOUR</div>
+            <div class="mode-card-desc">Procestuj Česko po trase</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('geoword')">
-          <div class="mode-card-icon">🔤</div>
-          <div class="mode-card-title">GeoWord</div>
-          <div class="mode-card-desc">Uhádni název z mapy</div>
+          <span class="card-deco">🔤</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">🔤</div>
+            <div class="mode-card-title">GEOWORD</div>
+            <div class="mode-card-desc">Uhádni název z mapy</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('reveal')">
-          <div class="mode-card-icon">🔍</div>
-          <div class="mode-card-title">Reveal</div>
-          <div class="mode-card-desc">Postupné nápovědy</div>
+          <span class="card-deco">🔍</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">🔍</div>
+            <div class="mode-card-title">REVEAL</div>
+            <div class="mode-card-desc">Postupné nápovědy</div>
+          </div>
         </div>
         <div class="mode-card" onclick="selectMode('speed')">
-          <div class="mode-card-icon">⚡</div>
-          <div class="mode-card-title">Speed</div>
-          <div class="mode-card-desc">15s, satelit, adrenalin</div>
+          <span class="card-deco">⚡</span>
+          <div class="mode-card-inner">
+            <div class="mode-card-icon">⚡</div>
+            <div class="mode-card-title">SPEED ROUND</div>
+            <div class="mode-card-desc">15s, satelit, adrenalin</div>
+          </div>
         </div>
       </div>
     </div>
