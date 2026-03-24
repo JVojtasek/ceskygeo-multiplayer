@@ -723,6 +723,34 @@ function mkPin(color,lbl){
 }
 
 // ══ TIMER ══
+// ── Audio tick system (Web Audio API) ──
+let audioCtx=null;
+function playTick(freq,vol,dur){
+  try{
+    if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+    osc.type='sine';
+    osc.frequency.value=freq;
+    gain.gain.setValueAtTime(vol,audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+    osc.connect(gain);gain.connect(audioCtx.destination);
+    osc.start();osc.stop(audioCtx.currentTime+dur);
+  }catch(e){}
+}
+function tickForSeconds(left){
+  // 15-11s: soft low tick
+  if(left<=15&&left>10) playTick(600,0.12,0.08);
+  // 10-6s: medium tick
+  else if(left<=10&&left>5) playTick(800,0.2,0.1);
+  // 5-3s: urgent tick
+  else if(left<=5&&left>2) playTick(1000,0.3,0.12);
+  // 2-1s: very urgent high tick
+  else if(left<=2&&left>=1) playTick(1200,0.4,0.15);
+  // 0s: final buzzer
+  else if(left===0) playTick(400,0.5,0.4);
+}
+
 function startTimer(sec){
   const wrap=document.getElementById('timer-wrap');
   if(!sec){wrap.classList.add('hidden');return;}
@@ -740,6 +768,8 @@ function startTimer(sec){
     const pct=left/sec;
     wrap.classList.toggle('warn',pct<=0.4&&pct>0.2);
     wrap.classList.toggle('danger',pct<=0.2);
+    // Audio ticks in last 15 seconds
+    if(left<=15) tickForSeconds(left);
     if(left<=0){clearInterval(timerInterval);}
   },1000);
 }
