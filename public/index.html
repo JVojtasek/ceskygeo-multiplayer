@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ČeskýGeo</title>
+<title>GeoStrike</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -116,6 +116,17 @@ button,input{font-family:'Outfit',sans-serif}
 .sm-score{font-family:'JetBrains Mono',monospace;color:var(--gold);font-size:11px}
 .sm-guessed{font-size:9px;color:var(--green)}
 
+/* Mode grid */
+.mode-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:18px 0}
+.mode-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:16px 12px;text-align:center;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.mode-card:hover{background:rgba(34,211,238,.08);border-color:rgba(34,211,238,.3);transform:translateY(-2px);box-shadow:0 4px 20px rgba(34,211,238,.1)}
+.mode-card.selected{background:rgba(34,211,238,.12);border-color:var(--accent);box-shadow:0 0 20px rgba(34,211,238,.15)}
+.mode-card-icon{font-size:28px;margin-bottom:6px}
+.mode-card-title{font-size:14px;font-weight:800;color:#fff;margin-bottom:4px}
+.mode-card-desc{font-size:11px;color:var(--muted);line-height:1.3}
+.mode-card.locked{opacity:.4;pointer-events:none}
+.mode-card.locked::after{content:'🔒';position:absolute;top:8px;right:8px;font-size:14px}
+
 /* Mini map in corner */
 #guess-wrap{position:absolute;bottom:20px;right:20px;width:280px;height:200px;z-index:900;border-radius:14px;overflow:hidden;border:2px solid rgba(34,211,238,.3);box-shadow:0 8px 32px rgba(0,0,0,.6);transition:width .35s ease,height .35s ease;background:#111827;transform-origin:bottom right}
 #guess-wrap:hover,#guess-wrap.expanded{width:min(800px,65vw);height:min(600px,65vh)}
@@ -217,8 +228,37 @@ button,input{font-family:'Outfit',sans-serif}
 <div class="lobby-card">
   <div class="logo">
     <span class="logo-icon">🗺️</span>
-    <div class="logo-title">ČeskýGeo</div>
-    <div class="logo-sub">GeoGuessr · Česká republika</div>
+    <div class="logo-title">GEOSTRIKE</div>
+    <div class="logo-sub">Poznej Česko · Poraz soupeře</div>
+  </div>
+
+  <!-- GAME MODE CARDS -->
+  <div class="mode-grid" id="mode-grid">
+    <div class="mode-card selected" onclick="selectMode('classic')">
+      <div class="mode-card-icon">🎯</div>
+      <div class="mode-card-title">Klasická hra</div>
+      <div class="mode-card-desc">Solo nebo s přáteli. Hádej lokace na mapě.</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('duel')">
+      <div class="mode-card-icon">⚔️</div>
+      <div class="mode-card-title">Duel 1v1</div>
+      <div class="mode-card-desc">Souboj dvou hráčů. Best of 5. Kdo tipne blíž, vyhrává kolo.</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('battleRoyale')">
+      <div class="mode-card-icon">💀</div>
+      <div class="mode-card-title">Battle Royale</div>
+      <div class="mode-card-desc">3-10 hráčů. Nejhorší tip = eliminace. Poslední přežije.</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('streak')">
+      <div class="mode-card-icon">🔥</div>
+      <div class="mode-card-title">Streak</div>
+      <div class="mode-card-desc">Nekonečné kola. Hraj dokud netrefíš vedle. Jak daleko dojdeš?</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('daily')">
+      <div class="mode-card-icon">📅</div>
+      <div class="mode-card-title">Denní výzva</div>
+      <div class="mode-card-desc">5 lokací stejných pro všechny. Sdílej výsledek!</div>
+    </div>
   </div>
 
   <div class="tab-row" id="main-tabs">
@@ -499,13 +539,73 @@ document.querySelectorAll('.apikey-input').forEach(inp=>{
 });
 
 function showTab(t){
-  document.getElementById('tab-solo').classList.toggle('on',t==='solo');
-  document.getElementById('tab-create').classList.toggle('on',t==='create');
-  document.getElementById('tab-join').classList.toggle('on',t==='join');
+  document.querySelectorAll('#main-tabs .tab').forEach(tb=>tb.classList.remove('on'));
+  const active=document.querySelector(`#main-tabs .tab[onclick*="'${t}'"]`);
+  if(active) active.classList.add('on');
   document.getElementById('pane-solo').classList.toggle('hidden',t!=='solo');
   document.getElementById('pane-create').classList.toggle('hidden',t!=='create');
   document.getElementById('pane-join').classList.toggle('hidden',t!=='join');
   document.getElementById('lobby-err').textContent='';
+}
+
+let selectedGameMode = 'classic';
+function selectMode(mode) {
+  selectedGameMode = mode;
+  // Update card selection
+  document.querySelectorAll('.mode-card').forEach((c,i) => {
+    const modes = ['classic','duel','battleRoyale','streak','daily'];
+    c.classList.toggle('selected', modes[i] === mode);
+  });
+
+  // Show/hide relevant tabs and panes
+  const mainTabs = document.getElementById('main-tabs');
+  const soloPane = document.getElementById('pane-solo');
+  const createPane = document.getElementById('pane-create');
+  const joinPane = document.getElementById('pane-join');
+  const soloBtn = document.querySelector('#pane-solo .btn-main');
+
+  // Hide all panes first
+  [soloPane, createPane, joinPane].forEach(p => p?.classList.add('hidden'));
+  document.querySelectorAll('#main-tabs .tab').forEach(t => t.classList.remove('on'));
+
+  // Restore hidden fields
+  document.getElementById('s-rnd-slider')?.closest('.fld')?.classList.remove('hidden');
+  document.getElementById('s-timer-seg')?.closest('.fld')?.classList.remove('hidden');
+
+  if (mode === 'classic') {
+    mainTabs.classList.remove('hidden');
+    mainTabs.innerHTML = `
+      <button class="tab on" onclick="showTab('solo')">🎯 Solo hra</button>
+      <button class="tab" onclick="showTab('create')">👥 Vytvořit místnost</button>
+      <button class="tab" onclick="showTab('join')">🔗 Připojit se</button>`;
+    soloPane.classList.remove('hidden');
+    if(soloBtn) soloBtn.textContent = '🎯 Hrát solo →';
+  } else if (mode === 'duel') {
+    mainTabs.classList.remove('hidden');
+    mainTabs.innerHTML = `
+      <button class="tab on" onclick="showTab('create')">⚔️ Vytvořit duel</button>
+      <button class="tab" onclick="showTab('join')">🔗 Připojit se</button>`;
+    createPane.classList.remove('hidden');
+  } else if (mode === 'battleRoyale') {
+    mainTabs.classList.remove('hidden');
+    mainTabs.innerHTML = `
+      <button class="tab on" onclick="showTab('create')">💀 Vytvořit BR</button>
+      <button class="tab" onclick="showTab('join')">🔗 Připojit se</button>`;
+    createPane.classList.remove('hidden');
+  } else if (mode === 'streak') {
+    mainTabs.classList.add('hidden');
+    soloPane.classList.remove('hidden');
+    if(soloBtn) soloBtn.textContent = '🔥 Spustit Streak →';
+    // Hide round count for streak (it's endless)
+    document.getElementById('s-rnd-slider')?.closest('.fld')?.classList.add('hidden');
+  } else if (mode === 'daily') {
+    mainTabs.classList.add('hidden');
+    soloPane.classList.remove('hidden');
+    if(soloBtn) soloBtn.textContent = '📅 Denní výzva →';
+    // Hide round count and timer for daily (fixed 5 rounds)
+    document.getElementById('s-rnd-slider')?.closest('.fld')?.classList.add('hidden');
+    document.getElementById('s-timer-seg')?.closest('.fld')?.classList.add('hidden');
+  }
 }
 
 function setMode(m, prefix){
@@ -520,10 +620,14 @@ function getCats(prefix){
 }
 
 function getSettings(prefix){
+  let rounds = parseInt(document.getElementById(`${prefix}-rnd-slider`).value)||5;
+  if(selectedGameMode === 'streak') rounds = 30;
+  if(selectedGameMode === 'daily') rounds = 5;
   return {
     mode: state.mode,
+    gameMode: selectedGameMode,
     apiKey: document.querySelector(`#${prefix}-apikey`)?.value.trim() || localStorage.getItem('cgeo_key') || '',
-    rounds: parseInt(document.getElementById(`${prefix}-rnd-slider`).value)||5,
+    rounds: rounds,
     tol: parseInt(document.getElementById(`${prefix}-tol-slider`).value)||30,
     timerSec: parseInt(document.querySelector(`#${prefix}-timer-seg .seg.on`)?.dataset.v)||0,
     cats: getCats(prefix)
@@ -918,6 +1022,20 @@ function onRoundResult({loc,results,round,totalRounds,isLast}){
   btn.textContent=isLast?'🏆 Zobrazit výsledky':'Další kolo →';
   document.getElementById('r-ready-count').textContent='';
 
+  // Mode-specific banners
+  if(selectedGameMode === 'duel' && results.length >= 2){
+    const sorted = [...results].sort((a,b) => a.dist - b.dist);
+    const winner = sorted[0];
+    showModeBanner(`⚔️ Kolo vyhrál: ${winner.name}`);
+  }
+  if(selectedGameMode === 'battleRoyale' && results.length >= 2){
+    const worst = [...results].sort((a,b) => b.dist - a.dist)[0];
+    showModeBanner(`💀 ${worst.name} byl eliminován!`);
+  }
+  if(selectedGameMode === 'streak'){
+    showModeBanner(`🔥 Streak: ${state.roundHistory.length} kol`);
+  }
+
   // Streak toast
   if(state.streak>=2){
     showStreak(state.streak);
@@ -966,6 +1084,15 @@ function showStreak(n){
   setTimeout(()=>el.remove(),2200);
 }
 
+// ══ MODE BANNER ══
+function showModeBanner(text){
+  const el=document.createElement('div');
+  el.className='streak-toast';
+  el.textContent=text;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),2500);
+}
+
 // ══ CONFETTI ══
 function spawnConfetti(){
   const colors=['#22d3ee','#f59e0b','#10b981','#a78bfa','#f43f5e','#60a5fa'];
@@ -1007,6 +1134,44 @@ function onGameFinished({finalScores,locs}){
       <div class="podium-score">${p.score.toLocaleString('cs')}</div>
     </div>`;
   }).join('');
+
+  // ── Mode-specific final header ──
+  if(selectedGameMode === 'duel' && finalScores.length >= 2){
+    const winner = finalScores[0];
+    const loser = finalScores[1];
+    const wRounds = Math.ceil(finalScores[0].score / 5000);
+    const lRounds = Math.ceil(finalScores[1].score / 5000);
+    const headerEl = document.createElement('div');
+    headerEl.style.cssText = 'text-align:center;margin-bottom:12px;font-size:20px;font-weight:800;color:var(--gold)';
+    headerEl.textContent = `⚔️ VÍTĚZ: ${winner.name} (${wRounds}:${lRounds})`;
+    podium.parentElement.insertBefore(headerEl, podium);
+  }
+  if(selectedGameMode === 'battleRoyale' && finalScores.length >= 1){
+    const headerEl = document.createElement('div');
+    headerEl.style.cssText = 'text-align:center;margin-bottom:12px;font-size:20px;font-weight:800;color:var(--gold)';
+    headerEl.textContent = `👑 VÍTĚZ: ${finalScores[0].name}`;
+    podium.parentElement.insertBefore(headerEl, podium);
+  }
+  if(selectedGameMode === 'streak'){
+    const headerEl = document.createElement('div');
+    headerEl.style.cssText = 'text-align:center;margin-bottom:12px;font-size:20px;font-weight:800;color:var(--gold)';
+    headerEl.textContent = `🔥 Tvůj streak: ${state.roundHistory.length} kol!`;
+    podium.parentElement.insertBefore(headerEl, podium);
+  }
+  if(selectedGameMode === 'daily'){
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'btn-secondary';
+    shareBtn.style.cssText = 'margin-bottom:12px;width:100%';
+    shareBtn.textContent = '📋 Sdílet výsledek';
+    shareBtn.onclick = () => {
+      const h = state.roundHistory;
+      const total = h.reduce((a,r)=>a+r.score,0);
+      const emojis = h.map(r => r.dist<=20?'🟢':r.dist<=60?'🟡':'🔴').join('');
+      const text = `GeoStrike Denní výzva ${new Date().toLocaleDateString('cs')}\n${emojis}\nSkóre: ${total.toLocaleString('cs')} bodů`;
+      navigator.clipboard.writeText(text).then(()=>{ shareBtn.textContent='✓ Zkopírováno!'; setTimeout(()=>shareBtn.textContent='📋 Sdílet výsledek',2000); });
+    };
+    podium.parentElement.insertBefore(shareBtn, podium);
+  }
 
   // ── Stats ──
   const statsEl=document.getElementById('final-stats');

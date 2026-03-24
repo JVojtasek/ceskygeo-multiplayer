@@ -89,6 +89,35 @@ const LOCS = [
 console.log(`Loaded ${LOCS.length} total locations (${locationsJson.length} towns/villages + ${LANDMARKS.length} landmarks)`);
 
 /* DELETED: 300+ inline locations – replaced by locations.json */
+// ═══════════════════════════════════════════════════
+// SEEDED RANDOM (LCG) for Daily Challenge
+// ═══════════════════════════════════════════════════
+function seededRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 1664525 + 1013904223) & 0xFFFFFFFF;
+    return (s >>> 0) / 0x100000000;
+  };
+}
+
+function seededShuffle(arr, rng) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getTodaySeed() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}`;
+}
+
+// ═══════════════════════════════════════════════════
 // GAME ROOMS
 // ═══════════════════════════════════════════════════
 const rooms = new Map(); // roomCode -> Room
@@ -119,22 +148,59 @@ function calcScore(dist, tol) {
 
 function createRoom(settings) {
   const code = genCode();
-  const locs = shuffle(LOCS.filter(l => settings.cats.includes(l.cat)))
-    .slice(0, Math.min(settings.rounds, 60));
+  const gameMode = settings.gameMode || 'classic';
+  const filteredLocs = LOCS.filter(l => settings.cats.includes(l.cat));
+  let locs;
+
+  if (gameMode === 'daily') {
+    // Deterministic locations based on today's date
+    const seedStr = getTodaySeed();
+    const seedNum = parseInt(seedStr, 10);
+    const rng = seededRandom(seedNum);
+    locs = seededShuffle(filteredLocs, rng).slice(0, 5);
+  } else if (gameMode === 'streak') {
+    // Streak: start with 30 random locations, generate more when needed
+    locs = shuffle(filteredLocs).slice(0, 30);
+  } else if (gameMode === 'duel') {
+    // Duel: best of 5 rounds
+    locs = shuffle(filteredLocs).slice(0, 5);
+  } else {
+    // Classic + battleRoyale: use settings.rounds
+    locs = shuffle(filteredLocs).slice(0, Math.min(settings.rounds, 60));
+  }
 
   const room = {
     code,
     settings,
+    gameMode,
     locs,
     round: 0,
     phase: 'lobby',   // lobby | playing | roundResult | finished
     players: new Map(), // socketId -> { name, score, guesses: [] }
     guesses: new Map(), // socketId -> { lat, lng } for current round
     timerHandle: null,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    // New game mode fields
+    eliminated: [],       // for battleRoyale: array of socketIds
+    duelScore: {},        // for duel: { <socketId>: wins }
+    streakCount: 0,       // for streak
   };
   rooms.set(code, room);
   return room;
+}
+
+function getActivePlayers(room) {
+  // For battle royale, return only non-eliminated players
+  if (room.gameMode === 'battleRoyale') {
+    const active = new Map();
+    room.players.forEach((player, sid) => {
+      if (!room.eliminated.includes(sid)) {
+        active.set(sid, player);
+      }
+    });
+    return active;
+  }
+  return room.players;
 }
 
 function getRoomSafeState(room) {
@@ -143,21 +209,30 @@ function getRoomSafeState(room) {
     name: p.name,
     score: p.score,
     ready: p.ready || false,
-    guessedThisRound: room.guesses.has(p.id)
+    guessedThisRound: room.guesses.has(p.id),
+    eliminated: room.eliminated.includes(p.id)
   }));
+  const activePlayers = getActivePlayers(room);
   return {
     code: room.code,
     phase: room.phase,
     round: room.round,
-    totalRounds: room.locs.length,
+    totalRounds: room.gameMode === 'streak' ? null : room.locs.length,
     settings: room.settings,
+    gameMode: room.gameMode,
     players,
+    eliminated: room.eliminated.map(sid => {
+      const p = room.players.get(sid);
+      return p ? p.name : sid;
+    }),
+    duelScore: room.duelScore,
+    streakCount: room.streakCount,
     // Only send location AFTER round ends (prevent cheating)
     currentLoc: room.phase === 'roundResult' || room.phase === 'finished'
       ? room.locs[room.round] : null,
     currentLocCat: room.locs[room.round]?.cat,
     waitingFor: room.locs.length > 0
-      ? [...room.players.keys()].filter(id => !room.guesses.has(id)).length
+      ? [...activePlayers.keys()].filter(id => !room.guesses.has(id)).length
       : 0
   };
 }
@@ -167,7 +242,8 @@ function startRoundTimer(room) {
   if (room.timerHandle) clearTimeout(room.timerHandle);
   room.timerHandle = setTimeout(() => {
     // Auto-submit missing guesses (center of CZ)
-    room.players.forEach((_, sid) => {
+    const activePlayers = getActivePlayers(room);
+    activePlayers.forEach((_, sid) => {
       if (!room.guesses.has(sid)) {
         room.guesses.set(sid, { lat: 49.75, lng: 15.6, autoSubmit: true });
       }
@@ -180,8 +256,9 @@ function resolveRound(room) {
   if (room.timerHandle) { clearTimeout(room.timerHandle); room.timerHandle = null; }
   const loc = room.locs[room.round];
   const results = [];
+  const activePlayers = getActivePlayers(room);
 
-  room.players.forEach((player, sid) => {
+  activePlayers.forEach((player, sid) => {
     const guess = room.guesses.get(sid) || { lat: 49.75, lng: 15.6, autoSubmit: true };
     const dist = haversine(guess.lat, guess.lng, loc.la, loc.lo);
     const score = calcScore(dist, room.settings.tol);
@@ -195,16 +272,109 @@ function resolveRound(room) {
   room.phase = 'roundResult';
   room.guesses.clear();
 
-  io.to(room.code).emit('roundResult', {
+  // ── Game mode specific resolution ──
+
+  // DUEL: determine round winner
+  let roundWinner = null;
+  let duelGameOver = false;
+  if (room.gameMode === 'duel' && results.length === 2) {
+    // Closer guess (smaller distance) wins the round
+    const sorted = [...results].sort((a, b) => a.dist - b.dist);
+    roundWinner = sorted[0].name;
+    const winnerId = sorted[0].id;
+    if (!room.duelScore[winnerId]) room.duelScore[winnerId] = 0;
+    room.duelScore[winnerId]++;
+    // Check if someone reached 3 wins
+    for (const [sid, wins] of Object.entries(room.duelScore)) {
+      if (wins >= 3) {
+        duelGameOver = true;
+        break;
+      }
+    }
+  }
+
+  // BATTLE ROYALE: eliminate worst player
+  let eliminatedPlayer = null;
+  let brGameOver = false;
+  if (room.gameMode === 'battleRoyale' && results.length > 1) {
+    // Worst = largest distance
+    const sorted = [...results].sort((a, b) => b.dist - a.dist);
+    const worst = sorted[0];
+    room.eliminated.push(worst.id);
+    eliminatedPlayer = { id: worst.id, name: worst.name, dist: worst.dist };
+    // Check if only 1 remains
+    const remaining = getActivePlayers(room);
+    if (remaining.size <= 1) {
+      brGameOver = true;
+    }
+  }
+
+  // STREAK: check if distance within tolerance
+  let streakEnded = false;
+  if (room.gameMode === 'streak' && results.length > 0) {
+    const playerResult = results[0]; // solo, only one player
+    if (playerResult.dist > room.settings.tol) {
+      streakEnded = true;
+    } else {
+      room.streakCount++;
+    }
+  }
+
+  // Build roundResult payload
+  const roundPayload = {
     loc,
     results,
     round: room.round,
-    totalRounds: room.locs.length,
-    isLast: room.round >= room.locs.length - 1
-  });
+    totalRounds: room.gameMode === 'streak' ? null : room.locs.length,
+    isLast: room.gameMode === 'streak'
+      ? streakEnded
+      : room.gameMode === 'duel'
+        ? duelGameOver
+        : room.gameMode === 'battleRoyale'
+          ? brGameOver
+          : room.round >= room.locs.length - 1,
+    gameMode: room.gameMode,
+    streakCount: room.streakCount,
+  };
 
-  // Auto-advance after 10s (multiplayer only — solo waits for player click)
-  if (!room.settings.solo) {
+  if (room.gameMode === 'duel') {
+    roundPayload.roundWinner = roundWinner;
+    roundPayload.duelScore = room.duelScore;
+  }
+
+  if (room.gameMode === 'battleRoyale' && eliminatedPlayer) {
+    roundPayload.eliminatedPlayer = eliminatedPlayer;
+  }
+
+  io.to(room.code).emit('roundResult', roundPayload);
+
+  // Emit extra events for specific modes
+  if (room.gameMode === 'battleRoyale' && eliminatedPlayer) {
+    io.to(room.code).emit('playerEliminated', {
+      name: eliminatedPlayer.name,
+      dist: eliminatedPlayer.dist,
+      remainingCount: getActivePlayers(room).size
+    });
+  }
+
+  if (room.gameMode === 'streak' && streakEnded) {
+    io.to(room.code).emit('streakEnded', { streakCount: room.streakCount });
+    finishGame(room);
+    return;
+  }
+
+  // Immediately finish if duel or battle royale game over
+  if (duelGameOver || brGameOver) {
+    // Let the roundResult be seen, then finish
+    // Use a short delay so clients see the round result first
+    setTimeout(() => {
+      finishGame(room);
+    }, 100);
+    return;
+  }
+
+  // Auto-advance after 10s (multiplayer only -- solo waits for player click)
+  if (!room.settings.solo && room.gameMode !== 'duel') {
     room.autoAdvance = setTimeout(() => {
       if (room.phase === 'roundResult') advanceRound(room);
     }, 10000);
@@ -213,22 +383,38 @@ function resolveRound(room) {
 
 function advanceRound(room) {
   if (room.autoAdvance) { clearTimeout(room.autoAdvance); room.autoAdvance = null; }
-  if (room.round >= room.locs.length - 1) {
+
+  // Streak mode: generate more locations if needed
+  if (room.gameMode === 'streak') {
+    if (room.round >= room.locs.length - 1) {
+      // Need more locations
+      const filteredLocs = LOCS.filter(l => room.settings.cats.includes(l.cat));
+      const moreLocs = shuffle(filteredLocs).slice(0, 30);
+      room.locs.push(...moreLocs);
+    }
+  } else if (room.round >= room.locs.length - 1) {
     finishGame(room);
     return;
   }
+
   room.round++;
   room.phase = 'playing';
   room.guesses.clear();
   const loc = room.locs[room.round];
   io.to(room.code).emit('newRound', {
     round: room.round,
-    totalRounds: room.locs.length,
+    totalRounds: room.gameMode === 'streak' ? null : room.locs.length,
     locCat: loc.cat,
     locHeading: loc.h,
     locLat: loc.la,
     locLng: loc.lo,
-    timerSec: room.settings.timerSec
+    timerSec: room.settings.timerSec,
+    gameMode: room.gameMode,
+    streakCount: room.streakCount,
+    eliminated: room.eliminated.map(sid => {
+      const p = room.players.get(sid);
+      return p ? p.name : sid;
+    }),
   });
   startRoundTimer(room);
 }
@@ -238,8 +424,61 @@ function finishGame(room) {
   const finalScores = [...room.players.values()]
     .map(p => ({ id: p.id, name: p.name, score: p.score, guesses: p.guesses }))
     .sort((a, b) => b.score - a.score);
-  io.to(room.code).emit('gameFinished', { finalScores, locs: room.locs });
+
+  const payload = { finalScores, locs: room.locs, gameMode: room.gameMode };
+
+  // DUEL: include duel winner info
+  if (room.gameMode === 'duel') {
+    let duelWinner = null;
+    let maxWins = 0;
+    for (const [sid, wins] of Object.entries(room.duelScore)) {
+      if (wins > maxWins) {
+        maxWins = wins;
+        const p = room.players.get(sid);
+        duelWinner = p ? p.name : sid;
+      }
+    }
+    payload.duelWinner = duelWinner;
+    payload.duelScore = room.duelScore;
+    io.to(room.code).emit('duelWinner', { winner: duelWinner, duelScore: room.duelScore });
+  }
+
+  // BATTLE ROYALE: the last player standing is the winner
+  if (room.gameMode === 'battleRoyale') {
+    const remaining = getActivePlayers(room);
+    if (remaining.size === 1) {
+      const [[sid, player]] = [...remaining.entries()];
+      payload.battleRoyaleWinner = player.name;
+    }
+    payload.eliminated = room.eliminated.map(sid => {
+      const p = room.players.get(sid);
+      return p ? p.name : sid;
+    });
+  }
+
+  // STREAK: include streak count
+  if (room.gameMode === 'streak') {
+    payload.streakCount = room.streakCount;
+  }
+
+  // DAILY: include shareable result
+  if (room.gameMode === 'daily') {
+    const totalScore = finalScores.length > 0 ? finalScores[0].score : 0;
+    const seedStr = getTodaySeed();
+    const shareText = `GeoStrike Daily ${seedStr} - ${totalScore}/25000 pts`;
+    payload.dailyResult = { score: totalScore, seed: seedStr, shareText };
+    io.to(room.code).emit('dailyResult', { score: totalScore, seed: seedStr, shareText });
+  }
+
+  io.to(room.code).emit('gameFinished', payload);
 }
+
+// ═══════════════════════════════════════════════════
+// REST API
+// ═══════════════════════════════════════════════════
+app.get('/api/daily-seed', (req, res) => {
+  res.json({ seed: getTodaySeed() });
+});
 
 // ═══════════════════════════════════════════════════
 // SOCKET.IO EVENTS
@@ -250,31 +489,39 @@ io.on('connection', (socket) => {
   // Create room
   socket.on('createRoom', ({ name, settings }) => {
     const room = createRoom(settings);
+    const gameMode = room.gameMode;
     socket.join(room.code);
     const player = { id: socket.id, name, score: 0, guesses: [], ready: false };
     room.players.set(socket.id, player);
     socket.data.roomCode = room.code;
     socket.data.name = name;
 
-    if (settings.solo) {
-      // Solo mode: auto-start immediately, skip waiting room
+    // Initialize duel score for first player
+    if (gameMode === 'duel') {
+      room.duelScore[socket.id] = 0;
+    }
+
+    if (settings.solo || gameMode === 'streak' || gameMode === 'daily') {
+      // Solo modes: auto-start immediately, skip waiting room
       room.phase = 'playing';
       player.ready = true;
       const loc = room.locs[0];
       socket.emit('soloStart', {
         round: 0,
-        totalRounds: room.locs.length,
+        totalRounds: gameMode === 'streak' ? null : room.locs.length,
         locCat: loc.cat,
         locHeading: loc.h,
         locLat: loc.la,
         locLng: loc.lo,
-        timerSec: room.settings.timerSec
+        timerSec: room.settings.timerSec,
+        gameMode,
+        streakCount: room.streakCount,
       });
       startRoundTimer(room);
-      console.log(`[SOLO] ${room.code} started by ${name}`);
+      console.log(`[SOLO/${gameMode.toUpperCase()}] ${room.code} started by ${name}`);
     } else {
       socket.emit('roomCreated', { code: room.code, state: getRoomSafeState(room) });
-      console.log(`[ROOM] ${room.code} created by ${name}`);
+      console.log(`[ROOM/${gameMode.toUpperCase()}] ${room.code} created by ${name}`);
     }
   });
 
@@ -283,13 +530,29 @@ io.on('connection', (socket) => {
     const room = rooms.get(code.toUpperCase());
     if (!room) { socket.emit('error', { msg: 'Místnost nenalezena.' }); return; }
     if (room.phase !== 'lobby') { socket.emit('error', { msg: 'Hra již probíhá.' }); return; }
-    if (room.players.size >= 8) { socket.emit('error', { msg: 'Místnost je plná (max 8).' }); return; }
+
+    // Validate player limits per game mode
+    if (room.gameMode === 'duel' && room.players.size >= 2) {
+      socket.emit('error', { msg: 'Duel je pouze pro 2 hráče.' }); return;
+    }
+    if (room.gameMode === 'battleRoyale' && room.players.size >= 10) {
+      socket.emit('error', { msg: 'Battle Royale: max 10 hráčů.' }); return;
+    }
+    if (room.players.size >= 8 && room.gameMode !== 'battleRoyale') {
+      socket.emit('error', { msg: 'Místnost je plná (max 8).' }); return;
+    }
 
     socket.join(room.code);
     const player = { id: socket.id, name, score: 0, guesses: [], ready: false };
     room.players.set(socket.id, player);
     socket.data.roomCode = room.code;
     socket.data.name = name;
+
+    // Initialize duel score for second player
+    if (room.gameMode === 'duel') {
+      room.duelScore[socket.id] = 0;
+    }
+
     socket.emit('roomJoined', { code: room.code, state: getRoomSafeState(room) });
     socket.to(room.code).emit('playerJoined', { name, state: getRoomSafeState(room) });
     console.log(`[JOIN] ${name} joined ${room.code}`);
@@ -304,9 +567,14 @@ io.on('connection', (socket) => {
     player.ready = true;
     io.to(room.code).emit('playerReady', { name: player.name, state: getRoomSafeState(room) });
 
-    // Start if all ready and at least 1 player
+    // Check minimum player requirements per mode
+    let minPlayers = 1;
+    if (room.gameMode === 'duel') minPlayers = 2;
+    if (room.gameMode === 'battleRoyale') minPlayers = 3;
+
+    // Start if all ready and minimum player count met
     const allReady = [...room.players.values()].every(p => p.ready);
-    if (allReady && room.players.size >= 1) {
+    if (allReady && room.players.size >= minPlayers) {
       room.phase = 'playing';
       const loc = room.locs[0];
       io.to(room.code).emit('gameStarted', {
@@ -316,7 +584,8 @@ io.on('connection', (socket) => {
         locHeading: loc.h,
         locLat: loc.la,
         locLng: loc.lo,
-        timerSec: room.settings.timerSec
+        timerSec: room.settings.timerSec,
+        gameMode: room.gameMode,
       });
       startRoundTimer(room);
     }
@@ -329,17 +598,24 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'playing') return;
     if (room.guesses.has(socket.id)) return; // already guessed
 
+    // Battle royale: eliminated players cannot guess
+    if (room.gameMode === 'battleRoyale' && room.eliminated.includes(socket.id)) {
+      return;
+    }
+
     room.guesses.set(socket.id, { lat, lng });
     const player = room.players.get(socket.id);
+    const activePlayers = getActivePlayers(room);
     // Notify others that this player guessed (not the coords)
     io.to(room.code).emit('playerGuessed', {
       name: player?.name,
-      waitingFor: [...room.players.keys()].filter(id => !room.guesses.has(id)).length
+      waitingFor: [...activePlayers.keys()].filter(id => !room.guesses.has(id)).length
     });
 
-    // All players guessed → resolve immediately
-    console.log(`[GUESS] After set: guesses=${room.guesses.size}/${room.players.size}`);
-    if (room.guesses.size >= room.players.size) {
+    // All active players guessed -> resolve immediately
+    const allGuessed = [...activePlayers.keys()].every(id => room.guesses.has(id));
+    console.log(`[GUESS] After set: guesses=${room.guesses.size}/${activePlayers.size}`);
+    if (allGuessed) {
       console.log(`[RESOLVE] All guessed, resolving round ${room.round}`);
       resolveRound(room);
     }
@@ -352,10 +628,20 @@ io.on('connection', (socket) => {
     const player = room.players.get(socket.id);
     if (player) player.readyNext = true;
 
-    // Solo: advance immediately
-    if (room.settings.solo) {
+    // Solo modes (including streak and daily): advance immediately
+    if (room.settings.solo || room.gameMode === 'streak' || room.gameMode === 'daily') {
       room.players.forEach(p => p.readyNext = false);
       advanceRound(room);
+      return;
+    }
+
+    // Duel: both players must click next
+    if (room.gameMode === 'duel') {
+      const allNext = [...room.players.values()].every(p => p.readyNext);
+      if (allNext) {
+        room.players.forEach(p => p.readyNext = false);
+        advanceRound(room);
+      }
       return;
     }
 
@@ -383,6 +669,29 @@ io.on('connection', (socket) => {
     if (player) {
       io.to(room.code).emit('playerLeft', { name: player.name, state: getRoomSafeState(room) });
     }
+
+    // For battle royale: if a player disconnects during play, check if game should end
+    if (room.gameMode === 'battleRoyale' && room.phase === 'playing') {
+      const active = getActivePlayers(room);
+      if (active.size <= 1 && active.size > 0) {
+        resolveRound(room);
+      }
+    }
+
+    // For duel: if a player disconnects, the other wins
+    if (room.gameMode === 'duel' && room.phase === 'playing' && room.players.size === 1) {
+      const [[winnerId, winnerPlayer]] = [...room.players.entries()];
+      room.phase = 'finished';
+      io.to(room.code).emit('duelWinner', { winner: winnerPlayer.name, reason: 'opponent_disconnected' });
+      io.to(room.code).emit('gameFinished', {
+        finalScores: [{ id: winnerId, name: winnerPlayer.name, score: winnerPlayer.score, guesses: winnerPlayer.guesses }],
+        locs: room.locs,
+        gameMode: 'duel',
+        duelWinner: winnerPlayer.name,
+        duelScore: room.duelScore,
+      });
+    }
+
     if (room.players.size === 0) {
       if (room.timerHandle) clearTimeout(room.timerHandle);
       if (room.autoAdvance) clearTimeout(room.autoAdvance);
@@ -405,5 +714,5 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`ČeskýGeo server running on port ${PORT}`);
+  console.log(`GeoStrike server running on port ${PORT}`);
 });
