@@ -196,6 +196,10 @@ function createRoom(settings) {
   } else if (gameMode === 'duel') {
     // Duel: best of 5 rounds
     locs = shuffle(filteredLocs).slice(0, 5);
+  } else if (gameMode === 'geoword') {
+    // GeoWord: filter to only cities and towns (not villages - too obscure)
+    const wordLocs = LOCS.filter(l => l.cat === 'city' || l.cat === 'town');
+    locs = shuffle(wordLocs).slice(0, Math.min(settings.rounds || 5, 60));
   } else if (gameMode === 'geotour') {
     // GeoTour: use stops from the selected tour
     const tour = GEO_TOURS.find(t => t.id === settings.tourId);
@@ -287,6 +291,7 @@ function getRoomSafeState(room) {
 }
 
 function startRoundTimer(room) {
+  room.roundStartTime = Date.now();
   if (room.settings.timerSec <= 0) return;
   if (room.timerHandle) clearTimeout(room.timerHandle);
   room.timerHandle = setTimeout(() => {
@@ -308,12 +313,23 @@ function resolveRound(room) {
   const activePlayers = getActivePlayers(room);
 
   activePlayers.forEach((player, sid) => {
-    const guess = room.guesses.get(sid) || { lat: 49.75, lng: 15.6, autoSubmit: true };
-    const dist = haversine(guess.lat, guess.lng, loc.la, loc.lo);
-    const score = calcScore(dist, room.settings.tol);
-    player.score += score;
-    player.guesses.push({ round: room.round, dist, score, lat: guess.lat, lng: guess.lng });
-    results.push({ id: sid, name: player.name, dist, score, totalScore: player.score, lat: guess.lat, lng: guess.lng, autoSubmit: guess.autoSubmit || false });
+    if (room.gameMode === 'geoword') {
+      // GeoWord: score comes from guessWord event; unsolved players get 0
+      const gwGuess = room.guesses.get(sid);
+      const score = gwGuess && gwGuess.solved ? gwGuess.score : 0;
+      if (!gwGuess || !gwGuess.solved) {
+        // Unsolved: record 0 score
+        player.guesses.push({ round: room.round, dist: 0, score: 0, lat: loc.la, lng: loc.lo });
+      }
+      results.push({ id: sid, name: player.name, dist: 0, score, totalScore: player.score, lat: loc.la, lng: loc.lo, autoSubmit: false, solved: gwGuess?.solved || false });
+    } else {
+      const guess = room.guesses.get(sid) || { lat: 49.75, lng: 15.6, autoSubmit: true };
+      const dist = haversine(guess.lat, guess.lng, loc.la, loc.lo);
+      const score = calcScore(dist, room.settings.tol);
+      player.score += score;
+      player.guesses.push({ round: room.round, dist, score, lat: guess.lat, lng: guess.lng });
+      results.push({ id: sid, name: player.name, dist, score, totalScore: player.score, lat: guess.lat, lng: guess.lng, autoSubmit: guess.autoSubmit || false });
+    }
   });
 
   // Sort by score desc
@@ -395,6 +411,10 @@ function resolveRound(room) {
     roundPayload.eliminatedPlayer = eliminatedPlayer;
   }
 
+  if (room.gameMode === 'geoword') {
+    roundPayload.cityName = loc.n;
+  }
+
   if (room.gameMode === 'geotour') {
     const stop = room.tour?.stops[room.round];
     roundPayload.tourStop = stop ? { fact: stop.fact, quiz: stop.quiz, city: stop.city } : null;
@@ -457,8 +477,9 @@ function advanceRound(room) {
   room.round++;
   room.phase = 'playing';
   room.guesses.clear();
+  if (room.hints) room.hints.clear();
   const loc = room.locs[room.round];
-  io.to(room.code).emit('newRound', {
+  const roundData = {
     round: room.round,
     totalRounds: room.gameMode === 'streak' ? null : room.locs.length,
     locCat: loc.cat,
@@ -472,7 +493,15 @@ function advanceRound(room) {
       const p = room.players.get(sid);
       return p ? p.name : sid;
     }),
-  });
+  };
+  // GeoWord: include word pattern info
+  if (room.gameMode === 'geoword') {
+    const name = loc.n;
+    roundData.wordLength = name.length;
+    roundData.wordPattern = name.split('').map(ch => (ch === ' ' ? ' ' : ch === '-' ? '-' : '_')).join('');
+    roundData.category = loc.cat;
+  }
+  io.to(room.code).emit('newRound', roundData);
   startRoundTimer(room);
 }
 
@@ -565,12 +594,12 @@ io.on('connection', (socket) => {
       room.duelScore[socket.id] = 0;
     }
 
-    if (settings.solo || gameMode === 'streak' || gameMode === 'daily') {
+    if (settings.solo || gameMode === 'streak' || gameMode === 'daily' || gameMode === 'geoword') {
       // Solo modes: auto-start immediately, skip waiting room
       room.phase = 'playing';
       player.ready = true;
       const loc = room.locs[0];
-      socket.emit('soloStart', {
+      const soloData = {
         round: 0,
         totalRounds: gameMode === 'streak' ? null : room.locs.length,
         locCat: loc.cat,
@@ -580,7 +609,15 @@ io.on('connection', (socket) => {
         timerSec: room.settings.timerSec,
         gameMode,
         streakCount: room.streakCount,
-      });
+      };
+      // GeoWord: include word pattern info
+      if (gameMode === 'geoword') {
+        const name = loc.n;
+        soloData.wordLength = name.length;
+        soloData.wordPattern = name.split('').map(ch => (ch === ' ' ? ' ' : ch === '-' ? '-' : '_')).join('');
+        soloData.category = loc.cat;
+      }
+      socket.emit('soloStart', soloData);
       startRoundTimer(room);
       console.log(`[SOLO/${gameMode.toUpperCase()}] ${room.code} started by ${name}`);
     } else {
@@ -641,7 +678,7 @@ io.on('connection', (socket) => {
     if (allReady && room.players.size >= minPlayers) {
       room.phase = 'playing';
       const loc = room.locs[0];
-      io.to(room.code).emit('gameStarted', {
+      const startData = {
         round: 0,
         totalRounds: room.locs.length,
         locCat: loc.cat,
@@ -650,7 +687,15 @@ io.on('connection', (socket) => {
         locLng: loc.lo,
         timerSec: room.settings.timerSec,
         gameMode: room.gameMode,
-      });
+      };
+      // GeoWord: include word pattern info
+      if (room.gameMode === 'geoword') {
+        const name = loc.n;
+        startData.wordLength = name.length;
+        startData.wordPattern = name.split('').map(ch => (ch === ' ' ? ' ' : ch === '-' ? '-' : '_')).join('');
+        startData.category = loc.cat;
+      }
+      io.to(room.code).emit('gameStarted', startData);
       startRoundTimer(room);
     }
   });
@@ -682,6 +727,89 @@ io.on('connection', (socket) => {
     if (allGuessed) {
       console.log(`[RESOLVE] All guessed, resolving round ${room.round}`);
       resolveRound(room);
+    }
+  });
+
+  // GeoWord: guess word
+  socket.on('guessWord', ({ word }) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.phase !== 'playing' || room.gameMode !== 'geoword') return;
+    if (room.guesses.has(socket.id)) return; // already solved
+
+    const loc = room.locs[room.round];
+    const correct = loc.n.toLowerCase().trim();
+    const guess = (word || '').toLowerCase().trim();
+
+    // Check if guess matches (allow without diacritics too)
+    const normalize = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const isCorrect = guess === correct || normalize(guess) === normalize(correct);
+
+    if (isCorrect) {
+      // Calculate time-based score: max 5000, decreasing over time
+      const elapsed = room.roundStartTime ? (Date.now() - room.roundStartTime) / 1000 : 0;
+      const maxTime = room.settings.timerSec || 120;
+      const timeRatio = Math.max(0, 1 - elapsed / maxTime);
+      let score = Math.round(5000 * timeRatio);
+      // Deduct hint penalty
+      const player = room.players.get(socket.id);
+      const hintPenalty = player.hintPenalty || 0;
+      score = Math.max(0, score - hintPenalty);
+
+      player.score += score;
+      player.guesses.push({ round: room.round, dist: 0, score, lat: loc.la, lng: loc.lo });
+      room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: true, score });
+
+      // Notify all
+      io.to(room.code).emit('wordSolved', {
+        name: player.name,
+        score,
+        elapsed: Math.round(elapsed),
+        totalScore: player.score
+      });
+
+      // Reset hint penalty for next round
+      player.hintPenalty = 0;
+
+      // Check if all players solved
+      if (room.guesses.size >= room.players.size) {
+        resolveRound(room);
+      }
+    } else {
+      // Wrong guess - send back to player only
+      socket.emit('wordWrong', { word: guess });
+    }
+  });
+
+  // GeoWord: request hint
+  socket.on('requestHint', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.phase !== 'playing' || room.gameMode !== 'geoword') return;
+
+    const loc = room.locs[room.round];
+    const name = loc.n;
+
+    // Track hints per player per round
+    if (!room.hints) room.hints = new Map();
+    const playerHints = room.hints.get(socket.id) || [];
+
+    // Find next unrevealed letter position
+    const revealed = new Set(playerHints);
+    let nextPos = -1;
+    for (let i = 0; i < name.length; i++) {
+      if (name[i] !== ' ' && name[i] !== '-' && !revealed.has(i)) {
+        nextPos = i;
+        break;
+      }
+    }
+
+    if (nextPos >= 0) {
+      playerHints.push(nextPos);
+      room.hints.set(socket.id, playerHints);
+      socket.emit('hintRevealed', { pos: nextPos, letter: name[nextPos], cost: 500 });
+
+      // Deduct hint cost from potential score
+      const player = room.players.get(socket.id);
+      if (player) player.hintPenalty = (player.hintPenalty || 0) + 500;
     }
   });
 
