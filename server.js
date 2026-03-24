@@ -118,6 +118,34 @@ function getTodaySeed() {
 }
 
 // ═══════════════════════════════════════════════════
+// REGIONS (for filtering locations by Czech region)
+// ═══════════════════════════════════════════════════
+const CZ_REGIONS = [
+  {name:'Praha',la:50.08,lo:14.42,r:0.15},
+  {name:'Středočeský',la:49.95,lo:14.55,r:0.65},
+  {name:'Jihočeský',la:49.05,lo:14.25,r:0.55},
+  {name:'Plzeňský',la:49.55,lo:13.30,r:0.55},
+  {name:'Karlovarský',la:50.20,lo:12.75,r:0.40},
+  {name:'Ústecký',la:50.55,lo:13.90,r:0.50},
+  {name:'Liberecký',la:50.73,lo:15.05,r:0.35},
+  {name:'Královéhradecký',la:50.35,lo:15.85,r:0.50},
+  {name:'Pardubický',la:49.95,lo:16.10,r:0.45},
+  {name:'Vysočina',la:49.40,lo:15.60,r:0.50},
+  {name:'Jihomoravský',la:49.00,lo:16.60,r:0.55},
+  {name:'Olomoucký',la:49.80,lo:17.10,r:0.50},
+  {name:'Zlínský',la:49.20,lo:17.70,r:0.40},
+  {name:'Moravskoslezský',la:49.80,lo:18.25,r:0.45},
+];
+function getRegion(la, lo) {
+  let best = null, bestDist = Infinity;
+  for (const reg of CZ_REGIONS) {
+    const d = Math.sqrt((la - reg.la) ** 2 + (lo - reg.lo) ** 2);
+    if (d < reg.r && d < bestDist) { best = reg.name; bestDist = d; }
+  }
+  return best || 'Česko';
+}
+
+// ═══════════════════════════════════════════════════
 // GAME ROOMS
 // ═══════════════════════════════════════════════════
 const rooms = new Map(); // roomCode -> Room
@@ -149,7 +177,10 @@ function calcScore(dist, tol) {
 function createRoom(settings) {
   const code = genCode();
   const gameMode = settings.gameMode || 'classic';
-  const filteredLocs = LOCS.filter(l => settings.cats.includes(l.cat));
+  let filteredLocs = LOCS.filter(l => settings.cats.includes(l.cat));
+  if (settings.region) {
+    filteredLocs = filteredLocs.filter(l => getRegion(l.la, l.lo) === settings.region);
+  }
   let locs;
 
   if (gameMode === 'daily') {
@@ -388,7 +419,10 @@ function advanceRound(room) {
   if (room.gameMode === 'streak') {
     if (room.round >= room.locs.length - 1) {
       // Need more locations
-      const filteredLocs = LOCS.filter(l => room.settings.cats.includes(l.cat));
+      let filteredLocs = LOCS.filter(l => room.settings.cats.includes(l.cat));
+      if (room.settings.region) {
+        filteredLocs = filteredLocs.filter(l => getRegion(l.la, l.lo) === room.settings.region);
+      }
       const moreLocs = shuffle(filteredLocs).slice(0, 30);
       room.locs.push(...moreLocs);
     }

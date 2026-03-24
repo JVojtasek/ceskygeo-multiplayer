@@ -219,6 +219,22 @@ button,input{font-family:'Outfit',sans-serif}
 .leaflet-popup-content-wrapper{background:var(--panel);color:var(--text);border:1px solid var(--border)}
 .leaflet-popup-tip{background:var(--panel)}
 .leaflet-popup-content{font-size:12.5px;font-weight:600}
+
+/* Profile bar (XP system) */
+.profile-bar{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px 16px;margin:12px 0;display:flex;align-items:center;gap:14px}
+.profile-rank{font-size:13px;font-weight:800;white-space:nowrap;color:var(--gold)}
+.profile-xp-wrap{flex:1;min-width:0}
+.profile-xp-bar{height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
+.profile-xp-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:3px;transition:width .5s ease}
+.profile-xp-text{font-size:10px;color:var(--muted);margin-top:3px;font-family:'JetBrains Mono',monospace}
+.profile-stats{font-size:11px;color:var(--muted);white-space:nowrap}
+
+/* Region select */
+.region-select{width:100%;padding:10px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;font-family:inherit;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23888' viewBox='0 0 16 16'%3E%3Cpath d='M8 12L2 6h12z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+.region-select option{background:#1a1a2e;color:#fff}
+
+/* XP toast animation */
+@keyframes fadeInUp{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 </style>
 </head>
 <body>
@@ -230,6 +246,15 @@ button,input{font-family:'Outfit',sans-serif}
     <span class="logo-icon">🗺️</span>
     <div class="logo-title">GEOSTRIKE</div>
     <div class="logo-sub">Poznej Česko · Poraz soupeře</div>
+  </div>
+
+  <div class="profile-bar" id="profile-bar">
+    <div class="profile-rank" id="profile-rank"></div>
+    <div class="profile-xp-wrap">
+      <div class="profile-xp-bar"><div class="profile-xp-fill" id="profile-xp-fill"></div></div>
+      <div class="profile-xp-text" id="profile-xp-text"></div>
+    </div>
+    <div class="profile-stats" id="profile-stats"></div>
   </div>
 
   <!-- GAME MODE CARDS -->
@@ -323,6 +348,26 @@ button,input{font-family:'Outfit',sans-serif}
         <span class="chip on" data-cat="landmark">🏰 Památky</span>
       </div>
     </div>
+    <div class="fld" id="s-region-fld">
+      <label>Region (volitelné)</label>
+      <select id="s-region-select" class="region-select">
+        <option value="">Celé Česko</option>
+        <option value="Praha">Praha</option>
+        <option value="Středočeský">Středočeský kraj</option>
+        <option value="Jihočeský">Jihočeský kraj</option>
+        <option value="Plzeňský">Plzeňský kraj</option>
+        <option value="Karlovarský">Karlovarský kraj</option>
+        <option value="Ústecký">Ústecký kraj</option>
+        <option value="Liberecký">Liberecký kraj</option>
+        <option value="Královéhradecký">Královéhradecký kraj</option>
+        <option value="Pardubický">Pardubický kraj</option>
+        <option value="Vysočina">Kraj Vysočina</option>
+        <option value="Jihomoravský">Jihomoravský kraj</option>
+        <option value="Olomoucký">Olomoucký kraj</option>
+        <option value="Zlínský">Zlínský kraj</option>
+        <option value="Moravskoslezský">Moravskoslezský kraj</option>
+      </select>
+    </div>
     <button class="btn-main btn-solo" onclick="startSolo()">🎯 Hrát solo →</button>
   </div>
 
@@ -381,6 +426,26 @@ button,input{font-family:'Outfit',sans-serif}
         <span class="chip on" data-cat="village">🏡 Vesnice</span>
         <span class="chip on" data-cat="landmark">🏰 Památky</span>
       </div>
+    </div>
+    <div class="fld" id="c-region-fld">
+      <label>Region (volitelné)</label>
+      <select id="c-region-select" class="region-select">
+        <option value="">Celé Česko</option>
+        <option value="Praha">Praha</option>
+        <option value="Středočeský">Středočeský kraj</option>
+        <option value="Jihočeský">Jihočeský kraj</option>
+        <option value="Plzeňský">Plzeňský kraj</option>
+        <option value="Karlovarský">Karlovarský kraj</option>
+        <option value="Ústecký">Ústecký kraj</option>
+        <option value="Liberecký">Liberecký kraj</option>
+        <option value="Královéhradecký">Královéhradecký kraj</option>
+        <option value="Pardubický">Pardubický kraj</option>
+        <option value="Vysočina">Kraj Vysočina</option>
+        <option value="Jihomoravský">Jihomoravský kraj</option>
+        <option value="Olomoucký">Olomoucký kraj</option>
+        <option value="Zlínský">Zlínský kraj</option>
+        <option value="Moravskoslezský">Moravskoslezský kraj</option>
+      </select>
     </div>
     <button class="btn-main" onclick="createRoom()">👥 Vytvořit místnost →</button>
   </div>
@@ -491,6 +556,157 @@ button,input{font-family:'Outfit',sans-serif}
 const COLORS=['#22d3ee','#a78bfa','#f59e0b','#10b981','#f43f5e','#60a5fa','#fb923c','#e879f9'];
 const CAT_LABELS={city:"Velké město",town:"Malé město",village:"Vesnice",landmark:"Památka"};
 const CIRC_R=23, CIRC=2*Math.PI*CIRC_R; // ~144.5
+
+// ── XP & RANK SYSTEM ──
+const RANKS = [
+  {name:'Nováček',min:0,icon:'🌱'},
+  {name:'Turista',min:500,icon:'🧳'},
+  {name:'Cestovatel',min:1500,icon:'🚗'},
+  {name:'Průzkumník',min:3500,icon:'🧭'},
+  {name:'Navigator',min:7000,icon:'🗺️'},
+  {name:'Kartograf',min:12000,icon:'📐'},
+  {name:'Expert',min:20000,icon:'🎯'},
+  {name:'Mistr',min:35000,icon:'👑'},
+  {name:'Legenda',min:60000,icon:'⚡'},
+  {name:'GeoStrike Elite',min:100000,icon:'💎'},
+];
+
+function getXP(){ return parseInt(localStorage.getItem('gs_xp')||'0'); }
+function setXP(val){ localStorage.setItem('gs_xp',val.toString()); }
+function getGamesPlayed(){ return parseInt(localStorage.getItem('gs_games')||'0'); }
+function getBestStreak(){ return parseInt(localStorage.getItem('gs_best_streak')||'0'); }
+function getBestDaily(){ return parseInt(localStorage.getItem('gs_best_daily')||'0'); }
+
+function getRank(xp){
+  let rank = RANKS[0];
+  for(const r of RANKS){ if(xp >= r.min) rank = r; }
+  return rank;
+}
+function getNextRank(xp){
+  for(const r of RANKS){ if(xp < r.min) return r; }
+  return null;
+}
+
+function addXP(amount){
+  const oldXP = getXP();
+  const newXP = oldXP + amount;
+  setXP(newXP);
+  localStorage.setItem('gs_games', (getGamesPlayed()+1).toString());
+
+  const oldRank = getRank(oldXP);
+  const newRank = getRank(newXP);
+
+  showXPToast(amount, newXP, newRank);
+
+  if(newRank.name !== oldRank.name){
+    setTimeout(()=> showRankUp(newRank), 1500);
+  }
+
+  updateProfileDisplay();
+}
+
+function showXPToast(gained, total, rank){
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(16,185,129,.9);color:#fff;padding:8px 20px;border-radius:20px;font-size:14px;font-weight:700;z-index:9999;animation:fadeInUp .4s ease;pointer-events:none;font-family:JetBrains Mono,monospace';
+  el.textContent = `+${gained} XP`;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 2000);
+}
+
+function showRankUp(rank){
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.95);border:2px solid var(--gold);color:#fff;padding:30px 50px;border-radius:20px;text-align:center;z-index:9999;animation:fadeInUp .5s ease;box-shadow:0 0 60px rgba(245,158,11,.3)';
+  el.innerHTML = `<div style="font-size:48px;margin-bottom:10px">${rank.icon}</div><div style="font-size:14px;color:var(--gold);font-weight:700;letter-spacing:2px">RANK UP!</div><div style="font-size:24px;font-weight:900;margin-top:5px">${rank.name}</div>`;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 3500);
+}
+
+function updateProfileDisplay(){
+  const xp = getXP();
+  const rank = getRank(xp);
+  const next = getNextRank(xp);
+  const games = getGamesPlayed();
+
+  const rankEl = document.getElementById('profile-rank');
+  const fillEl = document.getElementById('profile-xp-fill');
+  const textEl = document.getElementById('profile-xp-text');
+  const statsEl = document.getElementById('profile-stats');
+  if(!rankEl) return;
+
+  rankEl.textContent = `${rank.icon} ${rank.name}`;
+
+  if(next){
+    const progress = ((xp - rank.min) / (next.min - rank.min)) * 100;
+    fillEl.style.width = progress + '%';
+    textEl.textContent = `${xp.toLocaleString('cs')} / ${next.min.toLocaleString('cs')} XP`;
+  } else {
+    fillEl.style.width = '100%';
+    textEl.textContent = `${xp.toLocaleString('cs')} XP · MAX RANK`;
+  }
+
+  statsEl.textContent = `${games} her`;
+}
+
+// ── SOUND EFFECTS ──
+function playCorrect(){
+  playTick(880, 0.2, 0.1);
+  setTimeout(()=> playTick(1100, 0.25, 0.15), 100);
+}
+function playWrong(){
+  playTick(300, 0.2, 0.2);
+  setTimeout(()=> playTick(200, 0.15, 0.3), 150);
+}
+function playStreak(){
+  playTick(660, 0.15, 0.1);
+  setTimeout(()=> playTick(880, 0.2, 0.1), 100);
+  setTimeout(()=> playTick(1100, 0.25, 0.1), 200);
+  setTimeout(()=> playTick(1320, 0.3, 0.2), 300);
+}
+function playEliminated(){
+  playTick(150, 0.3, 0.5);
+  setTimeout(()=> playTick(120, 0.2, 0.4), 200);
+}
+function playVictory(){
+  [660,880,1100,1320,1100,1320,1760].forEach((f,i)=>{
+    setTimeout(()=> playTick(f, 0.2, 0.15), i*120);
+  });
+}
+function playDuelWin(){
+  playTick(880, 0.25, 0.1);
+  setTimeout(()=> playTick(1320, 0.3, 0.2), 150);
+}
+function playPerfect(){
+  [1200,1400,1600,1800,2000].forEach((f,i)=>{
+    setTimeout(()=> playTick(f, 0.15, 0.08), i*60);
+  });
+}
+
+// ── REGIONS ──
+const CZ_REGIONS = [
+  {name:'Praha',la:50.08,lo:14.42,r:0.15},
+  {name:'Středočeský',la:49.95,lo:14.55,r:0.65},
+  {name:'Jihočeský',la:49.05,lo:14.25,r:0.55},
+  {name:'Plzeňský',la:49.55,lo:13.30,r:0.55},
+  {name:'Karlovarský',la:50.20,lo:12.75,r:0.40},
+  {name:'Ústecký',la:50.55,lo:13.90,r:0.50},
+  {name:'Liberecký',la:50.73,lo:15.05,r:0.35},
+  {name:'Královéhradecký',la:50.35,lo:15.85,r:0.50},
+  {name:'Pardubický',la:49.95,lo:16.10,r:0.45},
+  {name:'Vysočina',la:49.40,lo:15.60,r:0.50},
+  {name:'Jihomoravský',la:49.00,lo:16.60,r:0.55},
+  {name:'Olomoucký',la:49.80,lo:17.10,r:0.50},
+  {name:'Zlínský',la:49.20,lo:17.70,r:0.40},
+  {name:'Moravskoslezský',la:49.80,lo:18.25,r:0.45},
+];
+
+function getRegion(la, lo){
+  let best = null, bestDist = Infinity;
+  for(const reg of CZ_REGIONS){
+    const d = Math.sqrt((la-reg.la)**2 + (lo-reg.lo)**2);
+    if(d < reg.r && d < bestDist){ best = reg.name; bestDist = d; }
+  }
+  return best || 'Česko';
+}
 
 let socket=null;
 let state={
@@ -630,7 +846,8 @@ function getSettings(prefix){
     rounds: rounds,
     tol: parseInt(document.getElementById(`${prefix}-tol-slider`).value)||30,
     timerSec: parseInt(document.querySelector(`#${prefix}-timer-seg .seg.on`)?.dataset.v)||0,
-    cats: getCats(prefix)
+    cats: getCats(prefix),
+    region: document.getElementById(`${prefix}-region-select`)?.value || ''
   };
 }
 
@@ -1036,9 +1253,29 @@ function onRoundResult({loc,results,round,totalRounds,isLast}){
     showModeBanner(`🔥 Streak: ${state.roundHistory.length} kol`);
   }
 
+  // Sound effects based on score
+  if(myResult){
+    if(myResult.score>=4000) playPerfect();
+    else if(myResult.score>=2000) playCorrect();
+    else playWrong();
+  }
+
+  // Duel round win sound
+  if(selectedGameMode === 'duel' && results.length >= 2){
+    const sorted = [...results].sort((a,b) => a.dist - b.dist);
+    if(sorted[0].id === state.myId) playDuelWin();
+  }
+
+  // Elimination sound
+  if(selectedGameMode === 'battleRoyale' && results.length >= 2){
+    const worst = [...results].sort((a,b) => b.dist - a.dist)[0];
+    if(worst) playEliminated();
+  }
+
   // Streak toast
   if(state.streak>=2){
     showStreak(state.streak);
+    playStreak();
   }
   // Confetti for great score
   if(myResult && myResult.score>=4000){
@@ -1119,9 +1356,20 @@ function nextRound(){
 }
 
 // ══ GAME FINISHED ══
-function onGameFinished({finalScores,locs}){
+function onGameFinished({finalScores,locs,gameMode,streakCount}){
   show('s-final');
   spawnConfetti(); // celebrate!
+  playVictory();
+
+  // Award XP based on game mode
+  const myFinal = finalScores.find(p => p.id === state.myId);
+  if(myFinal){
+    let xpGain = myFinal.score;
+    if(selectedGameMode === 'streak'){
+      xpGain = (streakCount || state.roundHistory.length) * 500;
+    }
+    if(xpGain > 0) addXP(xpGain);
+  }
 
   const podium=document.getElementById('final-podium');
   podium.innerHTML=finalScores.slice(0,4).map((p,i)=>{
@@ -1263,6 +1511,9 @@ function show(id){
   });
   if(id==='s-game'&&gMap)setTimeout(()=>{gMap.invalidateSize();gMap.setView([49.75,15.6],7);},120);
 }
+
+// Initialize profile display on page load
+updateProfileDisplay();
 </script>
 </body>
 </html>
