@@ -162,10 +162,15 @@ button,input{font-family:'Outfit',sans-serif}
 .mode-card-how{font-size:10px;color:rgba(255,255,255,.65);line-height:1.4;max-height:0;overflow:hidden;transition:max-height .4s ease,opacity .3s,margin .3s;opacity:0;margin-top:0;text-shadow:0 1px 3px rgba(0,0,0,.5)}
 .mode-card:hover .mode-card-how{max-height:80px;opacity:1;margin-top:6px}
 .mode-card:hover .mode-card-icon{font-size:36px;margin-bottom:2px}
-/* SVG character illustrations on cards */
+/* Card background images (manga characters) */
+.card-bg-img{position:absolute;inset:0;z-index:0;background-size:cover;background-position:center;opacity:.6;transition:all .5s ease;filter:brightness(.85)}
+.mode-card:hover .card-bg-img{opacity:.85;transform:scale(1.08);filter:brightness(1)}
+/* Fallback SVG scenes when no image */
 .card-scene{position:absolute;z-index:0;width:100%;height:100%;pointer-events:none;opacity:.5;transition:all .5s}
 .mode-card:hover .card-scene{opacity:.75;transform:scale(1.05)}
 .card-scene svg{width:100%;height:100%}
+/* Hide SVG when image is loaded */
+.card-bg-img+.card-scene{display:none}
 /* Decorative shapes layer */
 .card-deco{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .card-deco .blob{position:absolute;border-radius:50%;filter:blur(30px);opacity:.3;transition:all .6s}
@@ -1537,6 +1542,22 @@ function invalidateMapRepeatedly(){
   tick();
 }
 // Invalidate on hover transitions + drag-resize from top-left corner
+// ── Load card background images if they exist ──
+document.querySelectorAll('.mode-card').forEach((card,i)=>{
+  const idx=i+1;
+  const img=new Image();
+  img.onload=()=>{
+    const div=document.createElement('div');
+    div.className='card-bg-img';
+    div.style.backgroundImage=`url(/img/mode-${idx}.jpg)`;
+    card.insertBefore(div,card.firstChild);
+    // Hide SVG fallback
+    const scene=card.querySelector('.card-scene');
+    if(scene) scene.style.display='none';
+  };
+  img.src=`/img/mode-${idx}.jpg`;
+});
+
 document.addEventListener('DOMContentLoaded',()=>{
   const wrap=document.getElementById('guess-wrap');
   if(!wrap)return;
