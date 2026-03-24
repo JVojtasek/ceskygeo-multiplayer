@@ -16,6 +16,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // LOCATIONS DATABASE (loaded from JSON + landmarks)
 // ═══════════════════════════════════════════════════
 const locationsJson = require('./locations.json');
+const GEO_TOURS = require('./geo-tours.json');
 
 // Landmarks (hrady, zámky, kláštery, památky)
 const LANDMARKS = [
@@ -195,6 +196,17 @@ function createRoom(settings) {
   } else if (gameMode === 'duel') {
     // Duel: best of 5 rounds
     locs = shuffle(filteredLocs).slice(0, 5);
+  } else if (gameMode === 'geotour') {
+    // GeoTour: use stops from the selected tour
+    const tour = GEO_TOURS.find(t => t.id === settings.tourId);
+    if (tour) {
+      locs = tour.stops.map((s, i) => ({
+        id: 5000 + i, n: s.city, la: s.la, lo: s.lo, h: s.h, cat: 'tour',
+        fact: s.fact, quiz: s.quiz, stopIndex: i
+      }));
+    } else {
+      locs = shuffle(filteredLocs).slice(0, 5);
+    }
   } else {
     // Classic + battleRoyale: use settings.rounds
     locs = shuffle(filteredLocs).slice(0, Math.min(settings.rounds, 60));
@@ -215,7 +227,13 @@ function createRoom(settings) {
     eliminated: [],       // for battleRoyale: array of socketIds
     duelScore: {},        // for duel: { <socketId>: wins }
     streakCount: 0,       // for streak
+    tour: null,           // for geotour: the tour object
   };
+  // Store tour reference for geotour mode
+  if (gameMode === 'geotour') {
+    const tour = GEO_TOURS.find(t => t.id === settings.tourId);
+    if (tour) room.tour = tour;
+  }
   rooms.set(code, room);
   return room;
 }
@@ -377,6 +395,11 @@ function resolveRound(room) {
     roundPayload.eliminatedPlayer = eliminatedPlayer;
   }
 
+  if (room.gameMode === 'geotour') {
+    const stop = room.tour?.stops[room.round];
+    roundPayload.tourStop = stop ? { fact: stop.fact, quiz: stop.quiz, city: stop.city } : null;
+  }
+
   io.to(room.code).emit('roundResult', roundPayload);
 
   // Emit extra events for specific modes
@@ -512,6 +535,13 @@ function finishGame(room) {
 // ═══════════════════════════════════════════════════
 app.get('/api/daily-seed', (req, res) => {
   res.json({ seed: getTodaySeed() });
+});
+
+app.get('/api/tours', (req, res) => {
+  res.json(GEO_TOURS.map(t => ({
+    id: t.id, name: t.name, desc: t.desc, icon: t.icon,
+    difficulty: t.difficulty, stops: t.stops.length
+  })));
 });
 
 // ═══════════════════════════════════════════════════

@@ -235,6 +235,36 @@ button,input{font-family:'Outfit',sans-serif}
 
 /* XP toast animation */
 @keyframes fadeInUp{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+/* Tour grid */
+.tour-grid{display:grid;grid-template-columns:1fr;gap:8px}
+.tour-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 14px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:12px}
+.tour-card:hover{background:rgba(34,211,238,.08);border-color:rgba(34,211,238,.3)}
+.tour-card.selected{background:rgba(34,211,238,.12);border-color:var(--accent)}
+.tour-card-icon{font-size:24px;flex-shrink:0}
+.tour-card-info{flex:1;min-width:0}
+.tour-card-name{font-size:13px;font-weight:700;color:#fff}
+.tour-card-desc{font-size:11px;color:var(--muted);margin-top:2px}
+.tour-card-meta{display:flex;gap:8px;margin-top:4px}
+.tour-card-badge{font-size:10px;padding:2px 8px;border-radius:8px;font-weight:600}
+.tour-card-badge.easy{background:rgba(16,185,129,.15);color:#10b981}
+.tour-card-badge.medium{background:rgba(245,158,11,.15);color:#f59e0b}
+.tour-card-badge.hard{background:rgba(244,63,94,.15);color:#f43f5e}
+.tour-loading{text-align:center;color:var(--muted);padding:20px;font-size:13px}
+
+/* Quiz overlay */
+.quiz-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9998;display:flex;align-items:center;justify-content:center;animation:fadeIn .3s ease}
+.quiz-card{background:linear-gradient(135deg,#1e293b,#0f172a);border:1px solid rgba(34,211,238,.2);border-radius:20px;padding:30px;max-width:500px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.quiz-fact{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:12px;padding:14px;margin-bottom:18px;font-size:13px;color:#d1d5db;line-height:1.5;text-align:left}
+.quiz-fact-icon{color:#10b981;font-weight:700;margin-right:4px}
+.quiz-question{font-size:15px;font-weight:700;color:#fff;margin-bottom:14px}
+.quiz-options{display:grid;gap:8px}
+.quiz-opt{padding:12px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#fff;font-size:13px;cursor:pointer;transition:all .2s;text-align:left}
+.quiz-opt:hover{background:rgba(34,211,238,.1);border-color:rgba(34,211,238,.3)}
+.quiz-opt.correct{background:rgba(16,185,129,.2);border-color:#10b981;color:#10b981}
+.quiz-opt.wrong{background:rgba(244,63,94,.2);border-color:#f43f5e;color:#f43f5e}
+.quiz-continue{margin-top:16px;padding:10px 24px;background:var(--accent);color:#000;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;display:none}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
 </style>
 </head>
 <body>
@@ -283,6 +313,11 @@ button,input{font-family:'Outfit',sans-serif}
       <div class="mode-card-icon">📅</div>
       <div class="mode-card-title">Denní výzva</div>
       <div class="mode-card-desc">5 lokací stejných pro všechny. Sdílej výsledek!</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('geotour')">
+      <div class="mode-card-icon">🗺️</div>
+      <div class="mode-card-title">GeoTour</div>
+      <div class="mode-card-desc">Procestuj Česko po trase. Hádej města, odpovídej na kvízy.</div>
     </div>
   </div>
 
@@ -459,6 +494,42 @@ button,input{font-family:'Outfit',sans-serif}
     <div class="fld"><label>Tvoje jméno</label><input id="j-name" placeholder="Zadej přezdívku" maxlength="20"/></div>
     <div class="fld"><label>Kód místnosti</label><input id="j-code" placeholder="XXXXX" maxlength="5" style="text-transform:uppercase;font-family:'JetBrains Mono',monospace;font-size:18px;letter-spacing:4px;text-align:center"/></div>
     <button class="btn-main" onclick="joinRoom()">🔗 Připojit se →</button>
+  </div>
+
+  <!-- GEOTOUR -->
+  <div id="pane-tour" class="hidden">
+    <div class="mode-desc">
+      <span class="mode-emoji">🗺️</span>
+      <div><strong>GeoTour</strong> — procestuj Česko po trase. Hádej města, poznávej zajímavosti, závoď s přáteli.</div>
+    </div>
+    <div class="fld"><label>Tvoje jméno</label><input id="t-name" placeholder="Zadej přezdívku" maxlength="20"/></div>
+    <div class="fld">
+      <label>Typ zobrazení</label>
+      <div class="tab-row" style="margin-bottom:0">
+        <button class="tab on" id="t-mtab-sv" onclick="setMode('sv','t')">🌐 Street View</button>
+        <button class="tab" id="t-mtab-wiki" onclick="setMode('wiki','t')">🖼️ Fotky</button>
+      </div>
+    </div>
+    <div id="t-api-fld" class="fld">
+      <label>Google Maps API klíč</label>
+      <input type="password" id="t-apikey" placeholder="AIzaSy…" class="apikey-input"/>
+    </div>
+    <div class="fld">
+      <label>Vyber trasu</label>
+      <div class="tour-grid" id="tour-grid">
+        <div class="tour-loading">Načítám trasy...</div>
+      </div>
+    </div>
+    <div class="fld">
+      <label>Časový limit</label>
+      <div class="seg-row" id="t-timer-seg">
+        <button class="seg" data-v="0">∞ Bez</button>
+        <button class="seg" data-v="60">1 min</button>
+        <button class="seg on" data-v="120">2 min</button>
+        <button class="seg" data-v="180">3 min</button>
+      </div>
+    </div>
+    <button class="btn-main" onclick="startTour()" style="background:linear-gradient(135deg,#10b981,#059669)">🗺️ Vyrazit na cestu →</button>
   </div>
 
   <div class="err-msg" id="lobby-err"></div>
@@ -761,6 +832,7 @@ function showTab(t){
   document.getElementById('pane-solo').classList.toggle('hidden',t!=='solo');
   document.getElementById('pane-create').classList.toggle('hidden',t!=='create');
   document.getElementById('pane-join').classList.toggle('hidden',t!=='join');
+  document.getElementById('pane-tour')?.classList.add('hidden');
   document.getElementById('lobby-err').textContent='';
 }
 
@@ -769,7 +841,7 @@ function selectMode(mode) {
   selectedGameMode = mode;
   // Update card selection
   document.querySelectorAll('.mode-card').forEach((c,i) => {
-    const modes = ['classic','duel','battleRoyale','streak','daily'];
+    const modes = ['classic','duel','battleRoyale','streak','daily','geotour'];
     c.classList.toggle('selected', modes[i] === mode);
   });
 
@@ -780,8 +852,9 @@ function selectMode(mode) {
   const joinPane = document.getElementById('pane-join');
   const soloBtn = document.querySelector('#pane-solo .btn-main');
 
+  const tourPane = document.getElementById('pane-tour');
   // Hide all panes first
-  [soloPane, createPane, joinPane].forEach(p => p?.classList.add('hidden'));
+  [soloPane, createPane, joinPane, tourPane].forEach(p => p?.classList.add('hidden'));
   document.querySelectorAll('#main-tabs .tab').forEach(t => t.classList.remove('on'));
 
   // Restore hidden fields
@@ -821,6 +894,11 @@ function selectMode(mode) {
     // Hide round count and timer for daily (fixed 5 rounds)
     document.getElementById('s-rnd-slider')?.closest('.fld')?.classList.add('hidden');
     document.getElementById('s-timer-seg')?.closest('.fld')?.classList.add('hidden');
+  } else if (mode === 'geotour') {
+    mainTabs.classList.add('hidden');
+    [soloPane, createPane, joinPane].forEach(p => p?.classList.add('hidden'));
+    if(tourPane) tourPane.classList.remove('hidden');
+    loadTours();
   }
 }
 
@@ -1202,7 +1280,7 @@ function updateScoreMini(){
 }
 
 // ══ ROUND RESULT ══
-function onRoundResult({loc,results,round,totalRounds,isLast}){
+function onRoundResult({loc,results,round,totalRounds,isLast,tourStop}){
   stopTimer();
   state.currentLoc=loc;
   state.players=results.map(r=>({id:r.id,name:r.name,score:r.totalScore,guessedThisRound:false}));
@@ -1280,6 +1358,15 @@ function onRoundResult({loc,results,round,totalRounds,isLast}){
   // Confetti for great score
   if(myResult && myResult.score>=4000){
     spawnConfetti();
+  }
+
+  // GeoTour quiz overlay
+  if(tourStop){
+    setTimeout(() => {
+      showTourQuiz(tourStop, () => {
+        // Quiz done, player can proceed to next round
+      });
+    }, 1500);
   }
 
   // Build result map with animated zoom
@@ -1510,6 +1597,131 @@ function show(id){
     document.getElementById(s).classList.toggle('hidden',s!==id);
   });
   if(id==='s-game'&&gMap)setTimeout(()=>{gMap.invalidateSize();gMap.setView([49.75,15.6],7);},120);
+}
+
+// ══ GEOTOUR ══
+let selectedTourId = null;
+
+async function loadTours() {
+  const grid = document.getElementById('tour-grid');
+  try {
+    const res = await fetch('/api/tours');
+    const tours = await res.json();
+    grid.innerHTML = tours.map(t => `
+      <div class="tour-card" onclick="selectTour('${t.id}',this)" data-id="${t.id}">
+        <div class="tour-card-icon">${t.icon}</div>
+        <div class="tour-card-info">
+          <div class="tour-card-name">${t.name}</div>
+          <div class="tour-card-desc">${t.desc}</div>
+          <div class="tour-card-meta">
+            <span class="tour-card-badge ${t.difficulty}">${t.difficulty === 'easy' ? 'Snadná' : t.difficulty === 'medium' ? 'Střední' : 'Těžká'}</span>
+            <span style="font-size:10px;color:var(--muted)">${t.stops} zastávek</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    grid.innerHTML = '<div class="tour-loading">Chyba při načítání tras</div>';
+  }
+}
+
+function selectTour(id, el) {
+  selectedTourId = id;
+  document.querySelectorAll('.tour-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function startTour() {
+  if (!selectedTourId) { alert('Vyber trasu!'); return; }
+  const name = document.getElementById('t-name').value.trim() || 'Hráč';
+  localStorage.setItem('gs_name', name);
+
+  const apiKey = document.getElementById('t-apikey')?.value || localStorage.getItem('gs_apikey') || '';
+  if(apiKey) localStorage.setItem('gs_apikey', apiKey);
+
+  const timerSec = parseInt(document.querySelector('#t-timer-seg .seg.on')?.dataset.v) || 120;
+
+  state.mode = document.getElementById('t-mtab-sv')?.classList.contains('on') ? 'sv' : 'wiki';
+  state.apiKey = apiKey;
+
+  socket.emit('createRoom', {
+    name,
+    settings: {
+      solo: true,
+      gameMode: 'geotour',
+      tourId: selectedTourId,
+      mode: state.mode,
+      apiKey,
+      rounds: 99,
+      tol: 30,
+      timerSec,
+      cats: ['tour']
+    }
+  });
+}
+
+// ══ GEOTOUR QUIZ ══
+let _quizCallback = null;
+
+function showTourQuiz(tourStop, callback) {
+  if (!tourStop) { callback(); return; }
+
+  _quizCallback = callback;
+  const overlay = document.createElement('div');
+  overlay.className = 'quiz-overlay';
+  overlay.id = 'quiz-overlay';
+
+  let quizHtml = '';
+  if (tourStop.quiz) {
+    quizHtml = `
+      <div class="quiz-question">${tourStop.quiz.q}</div>
+      <div class="quiz-options">
+        ${tourStop.quiz.options.map((opt, i) => `
+          <div class="quiz-opt" data-i="${i}" onclick="answerQuiz(this,${tourStop.quiz.correct},${i})">${opt}</div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  overlay.innerHTML = `
+    <div class="quiz-card">
+      <div style="font-size:28px;margin-bottom:8px">${tourStop.city}</div>
+      <div class="quiz-fact"><span class="quiz-fact-icon">💡</span> ${tourStop.fact}</div>
+      ${quizHtml}
+      <button class="quiz-continue" id="quiz-continue" onclick="closeQuizOverlay()">Pokračovat →</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  if (!tourStop.quiz) {
+    overlay.querySelector('.quiz-continue').style.display = 'inline-block';
+  }
+}
+
+function closeQuizOverlay() {
+  const overlay = document.getElementById('quiz-overlay');
+  if (overlay) overlay.remove();
+  if (_quizCallback) { _quizCallback(); _quizCallback = null; }
+}
+
+function answerQuiz(el, correct, chosen) {
+  const opts = el.parentElement.querySelectorAll('.quiz-opt');
+  opts.forEach(o => {
+    o.style.pointerEvents = 'none';
+    const i = parseInt(o.dataset.i);
+    if (i === correct) o.classList.add('correct');
+    if (i === chosen && i !== correct) o.classList.add('wrong');
+  });
+
+  document.getElementById('quiz-continue').style.display = 'inline-block';
+
+  if (chosen === correct) {
+    playCorrect();
+    showXPToast(200, getXP() + 200, getRank(getXP() + 200));
+    setXP(getXP() + 200);
+  } else {
+    playWrong();
+  }
 }
 
 // Initialize profile display on page load
