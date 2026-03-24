@@ -343,6 +343,18 @@ button,input{font-family:'Outfit',sans-serif}
 .gw-submit{padding:8px 18px;background:var(--green);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
 .gw-hint-btn{padding:6px 14px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:var(--gold);border-radius:8px;font-size:12px;cursor:pointer;font-weight:600}
 .gw-hint-btn:hover{background:rgba(245,158,11,.25)}
+.gw-hint-btn.disabled{opacity:.3;pointer-events:none}
+.gw-top-bar{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap}
+.gw-lives{font-size:18px;letter-spacing:2px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}
+.gw-lives .dead{opacity:.15;filter:grayscale(1)}
+.gw-score-display{font-size:13px;font-weight:700;color:var(--gold);font-family:'JetBrains Mono',monospace;background:rgba(0,0,0,.3);padding:4px 10px;border-radius:8px}
+.gw-penalty{font-size:11px;color:#f43f5e;font-weight:600;min-height:16px;transition:all .3s}
+.gw-keyboard{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;max-width:520px;margin:4px auto}
+.gw-key{width:32px;height:36px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:6px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;transition:all .15s;font-family:'JetBrains Mono',monospace}
+.gw-key:hover{background:rgba(34,211,238,.15);border-color:rgba(34,211,238,.3);transform:scale(1.1)}
+.gw-key.correct{background:rgba(16,185,129,.25);border-color:rgba(16,185,129,.4);color:#10b981;pointer-events:none}
+.gw-key.wrong{background:rgba(244,63,94,.15);border-color:rgba(244,63,94,.3);color:#f43f5e;opacity:.4;pointer-events:none}
+.gw-key.used{opacity:.3;pointer-events:none}
 .gw-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace}
 .gw-category{font-size:11px;color:var(--accent2);background:rgba(168,85,247,.15);padding:3px 10px;border-radius:8px}
 
@@ -814,14 +826,20 @@ button,input{font-family:'Outfit',sans-serif}
     </div>
     <div id="score-mini"></div>
     <div id="geoword-panel">
-      <div class="gw-category" id="gw-category"></div>
-      <div class="gw-word" id="gw-word"></div>
-      <div class="gw-input-row">
-        <input class="gw-input" id="gw-input" placeholder="Napiš název města..." maxlength="40" onkeydown="if(event.key==='Enter')submitWord()"/>
-        <button class="gw-submit" onclick="submitWord()">Hádat</button>
-        <button class="gw-hint-btn" onclick="requestHint()">💡 Nápověda (-500b)</button>
+      <div class="gw-top-bar">
+        <div class="gw-category" id="gw-category"></div>
+        <div class="gw-lives" id="gw-lives">❤️❤️❤️❤️❤️❤️</div>
+        <div class="gw-score-display" id="gw-score-display">Max: 5 000 b</div>
       </div>
-      <div class="gw-status" id="gw-status">Hádej název města na mapě</div>
+      <div class="gw-word" id="gw-word"></div>
+      <div class="gw-keyboard" id="gw-keyboard"></div>
+      <div class="gw-input-row">
+        <input class="gw-input" id="gw-input" placeholder="Nebo hádej celé slovo... (risk: -2 životy)" maxlength="40" onkeydown="if(event.key==='Enter')submitWord()"/>
+        <button class="gw-submit" onclick="submitWord()">Hádat slovo</button>
+        <button class="gw-hint-btn" id="gw-hint-btn" onclick="requestHint()">💡 Nápověda <span id="gw-hint-count">3/3</span> (-500b)</button>
+      </div>
+      <div class="gw-penalty" id="gw-penalty"></div>
+      <div class="gw-status" id="gw-status">Hádej písmena nebo celé slovo</div>
     </div>
     <div id="reveal-panel" style="display:none">
       <div class="reveal-hints" id="reveal-hints"></div>
@@ -1246,37 +1264,83 @@ function initSocket(){
   });
 
   // GeoWord events
+  // ── GeoWord socket events ──
   socket.on('wordSolved', data => {
     if (data.name === state.myName) {
       gwSolved = true;
-      document.getElementById('gw-status').textContent = `Správně! +${data.score} bodů (${data.elapsed}s)`;
+      document.getElementById('gw-status').textContent = `✅ Správně! +${data.score} bodů (${data.elapsed}s)`;
       document.getElementById('gw-status').style.color = '#10b981';
+      document.getElementById('gw-score-display').textContent = `+${data.score} b`;
       document.querySelectorAll('.gw-letter').forEach(el => el.classList.add('solved'));
+      document.querySelectorAll('.gw-key').forEach(el => el.classList.add('used'));
       playCorrect();
     } else {
       document.getElementById('gw-status').textContent = `${data.name} uhádl/a! (+${data.score})`;
     }
   });
 
-  socket.on('wordWrong', data => {
-    const status = document.getElementById('gw-status');
-    status.textContent = `"${data.word}" není správně`;
-    status.style.color = '#f43f5e';
+  socket.on('wordLetterCorrect', data => {
+    // Reveal letters on board
+    data.positions.forEach(p => {
+      const el = document.querySelector(`.gw-letter[data-i="${p.pos}"]`);
+      if (el) { el.textContent = p.letter.toUpperCase(); el.classList.add('revealed'); }
+    });
+    // Mark key as correct
+    const key = document.querySelector(`.gw-key[data-letter="${data.letter.toUpperCase()}"]`);
+    if (key) key.classList.add('correct');
+    playTick(800, 0.2, 0.1);
+  });
+
+  socket.on('wordLetterWrong', data => {
+    gwLives = data.lives;
+    updateGwLives();
+    const key = document.querySelector(`.gw-key[data-letter="${data.letter.toUpperCase()}"]`);
+    if (key) key.classList.add('wrong');
+    document.getElementById('gw-status').textContent = `❌ Písmeno "${data.letter.toUpperCase()}" tam není! (${gwLives} ❤️ zbývá)`;
+    document.getElementById('gw-status').style.color = '#f43f5e';
     playWrong();
-    setTimeout(() => {
-      status.textContent = 'Zkus to znovu...';
-      status.style.color = '';
-    }, 1500);
+    setTimeout(() => { document.getElementById('gw-status').style.color = ''; }, 1200);
+  });
+
+  socket.on('wordWrong', data => {
+    gwLives = data.lives;
+    updateGwLives();
+    document.getElementById('gw-status').textContent = `❌ "${data.word}" není správně! -2 ❤️ (${gwLives} zbývá)`;
+    document.getElementById('gw-status').style.color = '#f43f5e';
+    playWrong();
+    setTimeout(() => { document.getElementById('gw-status').style.color = ''; }, 1500);
+  });
+
+  socket.on('wordDead', data => {
+    gwDead = true; gwLives = 0;
+    updateGwLives();
+    document.getElementById('gw-status').textContent = `💀 Konec! Správně bylo: ${data.answer}`;
+    document.getElementById('gw-status').style.color = '#f43f5e';
+    document.getElementById('gw-score-display').textContent = '0 b';
+    document.querySelectorAll('.gw-key').forEach(el => el.classList.add('used'));
+    // Reveal all letters
+    document.querySelectorAll('.gw-letter').forEach(el => el.classList.add('solved'));
+    playWrong();
+  });
+
+  socket.on('wordAlreadyGuessed', data => {
+    document.getElementById('gw-status').textContent = `Písmeno "${data.letter.toUpperCase()}" už jsi hádal/a`;
   });
 
   socket.on('hintRevealed', data => {
-    gwRevealed.add(data.pos);
-    const letterEl = document.querySelector(`.gw-letter[data-i="${data.pos}"]`);
-    if (letterEl) {
-      letterEl.textContent = data.letter.toUpperCase();
-      letterEl.classList.add('revealed');
-    }
+    const el = document.querySelector(`.gw-letter[data-i="${data.pos}"]`);
+    if (el) { el.textContent = data.letter.toUpperCase(); el.classList.add('revealed'); }
+    gwHintsLeft = data.maxHints - data.hintsUsed;
+    gwPenalty = data.totalPenalty;
+    document.getElementById('gw-hint-count').textContent = `${gwHintsLeft}/${data.maxHints}`;
+    document.getElementById('gw-penalty').textContent = `Penalizace: -${gwPenalty} bodů`;
+    if (gwHintsLeft <= 0) document.getElementById('gw-hint-btn').classList.add('disabled');
     playTick(1000, 0.15, 0.1);
+  });
+
+  socket.on('hintMaxReached', () => {
+    document.getElementById('gw-hint-btn').classList.add('disabled');
+    document.getElementById('gw-status').textContent = 'Nápovědy vyčerpány!';
   });
 
   // Progressive Reveal events
@@ -2039,74 +2103,99 @@ function show(id){
   if(id==='s-game'&&gMap)setTimeout(()=>{gMap.invalidateSize();gMap.setView([49.75,15.6],7);},120);
 }
 
-// ══ GEOWORD ══
-let gwRevealed = new Set();
-let gwWordName = '';
+// ══ GEOWORD (Hangman) ══
 let gwSolved = false;
+let gwDead = false;
+let gwLives = 6;
+let gwHintsLeft = 3;
+let gwPenalty = 0;
+
+const CZ_LETTERS = 'AÁBCČDĎEÉĚFGHCHIÍJKLMNŇOÓPQRŘSŠTŤUÚŮVWXYÝZŽ';
 
 function initGeoWord(data) {
-  gwRevealed = new Set();
-  gwSolved = false;
-  gwWordName = '';
+  gwSolved = false; gwDead = false; gwLives = 6; gwHintsLeft = 3; gwPenalty = 0;
 
   const panel = document.getElementById('geoword-panel');
   panel.classList.add('active');
 
-  // Show category
+  // Category
   const catNames = {city:'Velké město',town:'Malé město',village:'Vesnice',landmark:'Památka'};
   document.getElementById('gw-category').textContent = catNames[data.locCat] || data.locCat;
 
-  // Build word display from wordPattern
+  // Lives
+  updateGwLives();
+
+  // Score display
+  document.getElementById('gw-score-display').textContent = 'Max: 5 000 b';
+  document.getElementById('gw-penalty').textContent = '';
+
+  // Hint button
+  document.getElementById('gw-hint-count').textContent = '3/3';
+  document.getElementById('gw-hint-btn').classList.remove('disabled');
+
+  // Word display
   const wordDiv = document.getElementById('gw-word');
   const pattern = data.wordPattern || '';
-
   let html = '';
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i];
-    if (ch === ' ') {
-      html += '<div class="gw-letter space"></div>';
-    } else if (ch === '-') {
-      html += '<div class="gw-letter" data-i="'+i+'">-</div>';
-    } else if (ch !== '_') {
-      html += '<div class="gw-letter revealed" data-i="'+i+'">'+ch.toUpperCase()+'</div>';
-    } else {
-      html += '<div class="gw-letter" data-i="'+i+'">_</div>';
-    }
+    if (ch === ' ') html += '<div class="gw-letter space"></div>';
+    else if (ch === '-') html += '<div class="gw-letter" data-i="'+i+'">–</div>';
+    else if (ch !== '_') html += '<div class="gw-letter revealed" data-i="'+i+'">'+ch.toUpperCase()+'</div>';
+    else html += '<div class="gw-letter" data-i="'+i+'">_</div>';
   }
   wordDiv.innerHTML = html;
 
+  // Build keyboard
+  const kb = document.getElementById('gw-keyboard');
+  kb.innerHTML = CZ_LETTERS.split('').map(l =>
+    `<div class="gw-key" data-letter="${l}" onclick="guessLetter('${l}')">${l}</div>`
+  ).join('');
+
   document.getElementById('gw-input').value = '';
-  document.getElementById('gw-input').focus();
-  document.getElementById('gw-status').textContent = 'Hádej název města na mapě';
+  document.getElementById('gw-status').textContent = 'Klikej na písmena nebo hádej celé slovo';
   document.getElementById('gw-status').style.color = '';
 
-  // Show circle on guess map centered on location
+  // Map circle
   if (gMap) {
-    const circle = L.circle([data.locLat, data.locLng], {
-      radius: 5000,
-      color: 'rgba(34,211,238,0.4)',
-      fillColor: 'rgba(34,211,238,0.1)',
-      fillOpacity: 0.3,
-      weight: 2,
-      dashArray: '5 5'
+    if (window._gwCircle) gMap.removeLayer(window._gwCircle);
+    window._gwCircle = L.circle([data.locLat, data.locLng], {
+      radius: 5000, color:'rgba(34,211,238,.4)', fillColor:'rgba(34,211,238,.1)',
+      fillOpacity:.3, weight:2, dashArray:'5 5'
     }).addTo(gMap);
     gMap.setView([data.locLat, data.locLng], 10);
-    if (window._gwCircle) gMap.removeLayer(window._gwCircle);
-    window._gwCircle = circle;
   }
 }
 
+function updateGwLives() {
+  const el = document.getElementById('gw-lives');
+  let html = '';
+  for (let i = 0; i < 6; i++) {
+    html += i < gwLives ? '❤️' : '<span class="dead">🖤</span>';
+  }
+  el.innerHTML = html;
+}
+
+function guessLetter(letter) {
+  if (gwSolved || gwDead) return;
+  socket.emit('guessWord', { letter });
+}
+
 function submitWord() {
-  if (gwSolved) return;
+  if (gwSolved || gwDead) return;
   const input = document.getElementById('gw-input');
   const word = input.value.trim();
   if (!word) return;
-  socket.emit('guessWord', { word });
+  if (word.length === 1) {
+    socket.emit('guessWord', { letter: word });
+  } else {
+    socket.emit('guessWord', { word });
+  }
   input.value = '';
 }
 
 function requestHint() {
-  if (gwSolved) return;
+  if (gwSolved || gwDead || gwHintsLeft <= 0) return;
   socket.emit('requestHint');
 }
 

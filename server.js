@@ -794,85 +794,201 @@ io.on('connection', (socket) => {
   });
 
   // GeoWord: guess word
-  socket.on('guessWord', ({ word }) => {
+  // ── GeoWord: LETTER or FULL WORD guessing (hangman style) ──
+  // guessWord now accepts: { letter: 'a' } OR { word: 'Praha' }
+  socket.on('guessWord', ({ letter, word }) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || room.phase !== 'playing' || room.gameMode !== 'geoword') return;
-    if (room.guesses.has(socket.id)) return; // already solved
+    if (room.guesses.has(socket.id)) return; // already solved/dead
 
     const loc = room.locs[room.round];
-    const correct = loc.n.toLowerCase().trim();
-    const guess = (word || '').toLowerCase().trim();
+    const correctName = loc.n;
+    const normalize = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
-    // Check if guess matches (allow without diacritics too)
-    const normalize = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const isCorrect = guess === correct || normalize(guess) === normalize(correct);
-
-    if (isCorrect) {
-      // Calculate time-based score: max 5000, decreasing over time
-      const elapsed = room.roundStartTime ? (Date.now() - room.roundStartTime) / 1000 : 0;
-      const maxTime = room.settings.timerSec || 120;
-      const timeRatio = Math.max(0, 1 - elapsed / maxTime);
-      let score = Math.round(5000 * timeRatio);
-      // Deduct hint penalty
-      const player = room.players.get(socket.id);
-      const hintPenalty = player.hintPenalty || 0;
-      score = Math.max(0, score - hintPenalty);
-
-      player.score += score;
-      player.guesses.push({ round: room.round, dist: 0, score, lat: loc.la, lng: loc.lo });
-      room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: true, score });
-
-      // Notify all
-      io.to(room.code).emit('wordSolved', {
-        name: player.name,
-        score,
-        elapsed: Math.round(elapsed),
-        totalScore: player.score
+    // Init per-player state
+    if (!room.gwState) room.gwState = new Map();
+    if (!room.gwState.has(socket.id)) {
+      room.gwState.set(socket.id, {
+        revealed: new Set(), // indices of revealed letters
+        lives: 6,            // wrong guesses allowed
+        guessedLetters: new Set(), // letters already tried
+        hintsUsed: 0,        // paid hints (max 3)
+        hintPenalty: 0
       });
+    }
+    const ps = room.gwState.get(socket.id);
 
-      // Reset hint penalty for next round
-      player.hintPenalty = 0;
+    // === FULL WORD GUESS ===
+    if (word && word.trim().length > 1) {
+      if (normalize(word) === normalize(correctName)) {
+        // CORRECT — full word
+        const elapsed = room.roundStartTime ? (Date.now() - room.roundStartTime) / 1000 : 0;
+        const maxTime = room.settings.timerSec || 120;
+        const timeRatio = Math.max(0, 1 - elapsed / maxTime);
+        let score = Math.round(5000 * timeRatio);
+        score = Math.max(0, score - ps.hintPenalty);
+        // Bonus for remaining lives
+        score += ps.lives * 100;
 
-      // Check if all players solved
-      if (room.guesses.size >= room.players.size) {
-        resolveRound(room);
+        const player = room.players.get(socket.id);
+        player.score += score;
+        player.guesses.push({ round: room.round, dist: 0, score, lat: loc.la, lng: loc.lo });
+        room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: true, score });
+
+        io.to(room.code).emit('wordSolved', {
+          name: player.name, score, elapsed: Math.round(elapsed),
+          totalScore: player.score, fullWord: correctName
+        });
+
+        if (room.guesses.size >= room.players.size) resolveRound(room);
+      } else {
+        // WRONG full word = lose 2 lives
+        ps.lives -= 2;
+        if (ps.lives <= 0) {
+          ps.lives = 0;
+          // DEAD — 0 points
+          const player = room.players.get(socket.id);
+          player.guesses.push({ round: room.round, dist: 999, score: 0, lat: loc.la, lng: loc.lo });
+          room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: false, score: 0 });
+          socket.emit('wordDead', { answer: correctName, lives: 0 });
+          if (room.guesses.size >= room.players.size) resolveRound(room);
+        } else {
+          socket.emit('wordWrong', { word: word.trim(), lives: ps.lives, isFullWord: true });
+        }
       }
-    } else {
-      // Wrong guess - send back to player only
-      socket.emit('wordWrong', { word: guess });
+      return;
+    }
+
+    // === SINGLE LETTER GUESS ===
+    if (letter && letter.length === 1) {
+      const normalLetter = normalize(letter);
+      if (ps.guessedLetters.has(normalLetter)) {
+        socket.emit('wordAlreadyGuessed', { letter: normalLetter });
+        return;
+      }
+      ps.guessedLetters.add(normalLetter);
+
+      // Check if letter exists in name
+      const normalName = normalize(correctName);
+      const positions = [];
+      for (let i = 0; i < correctName.length; i++) {
+        if (correctName[i] !== ' ' && correctName[i] !== '-' && normalize(correctName[i]) === normalLetter) {
+          positions.push(i);
+          ps.revealed.add(i);
+        }
+      }
+
+      if (positions.length > 0) {
+        // CORRECT letter
+        const lettersMap = positions.map(i => ({ pos: i, letter: correctName[i] }));
+        socket.emit('wordLetterCorrect', { letter: normalLetter, positions: lettersMap, lives: ps.lives });
+
+        // Check if fully revealed
+        let allRevealed = true;
+        for (let i = 0; i < correctName.length; i++) {
+          if (correctName[i] !== ' ' && correctName[i] !== '-' && !ps.revealed.has(i)) {
+            allRevealed = false; break;
+          }
+        }
+        if (allRevealed) {
+          // AUTO-SOLVE — all letters found
+          const elapsed = room.roundStartTime ? (Date.now() - room.roundStartTime) / 1000 : 0;
+          const maxTime = room.settings.timerSec || 120;
+          const timeRatio = Math.max(0, 1 - elapsed / maxTime);
+          let score = Math.round(5000 * timeRatio);
+          score = Math.max(0, score - ps.hintPenalty);
+          score += ps.lives * 100;
+
+          const player = room.players.get(socket.id);
+          player.score += score;
+          player.guesses.push({ round: room.round, dist: 0, score, lat: loc.la, lng: loc.lo });
+          room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: true, score });
+
+          io.to(room.code).emit('wordSolved', {
+            name: player.name, score, elapsed: Math.round(elapsed),
+            totalScore: player.score, fullWord: correctName
+          });
+          if (room.guesses.size >= room.players.size) resolveRound(room);
+        }
+      } else {
+        // WRONG letter — lose 1 life
+        ps.lives -= 1;
+        if (ps.lives <= 0) {
+          ps.lives = 0;
+          const player = room.players.get(socket.id);
+          player.guesses.push({ round: room.round, dist: 999, score: 0, lat: loc.la, lng: loc.lo });
+          room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: false, score: 0 });
+          socket.emit('wordDead', { answer: correctName, lives: 0 });
+          if (room.guesses.size >= room.players.size) resolveRound(room);
+        } else {
+          socket.emit('wordLetterWrong', { letter: normalLetter, lives: ps.lives });
+        }
+      }
+      return;
     }
   });
 
-  // GeoWord: request hint
+  // GeoWord: request hint (max 3, costs 500 each, reveals random letter)
   socket.on('requestHint', () => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || room.phase !== 'playing' || room.gameMode !== 'geoword') return;
+    if (room.guesses.has(socket.id)) return;
 
     const loc = room.locs[room.round];
     const name = loc.n;
 
-    // Track hints per player per round
-    if (!room.hints) room.hints = new Map();
-    const playerHints = room.hints.get(socket.id) || [];
+    if (!room.gwState) room.gwState = new Map();
+    if (!room.gwState.has(socket.id)) return;
+    const ps = room.gwState.get(socket.id);
 
-    // Find next unrevealed letter position
-    const revealed = new Set(playerHints);
-    let nextPos = -1;
-    for (let i = 0; i < name.length; i++) {
-      if (name[i] !== ' ' && name[i] !== '-' && !revealed.has(i)) {
-        nextPos = i;
-        break;
-      }
+    // Max 3 hints
+    if (ps.hintsUsed >= 3) {
+      socket.emit('hintMaxReached', { max: 3 });
+      return;
     }
 
-    if (nextPos >= 0) {
-      playerHints.push(nextPos);
-      room.hints.set(socket.id, playerHints);
-      socket.emit('hintRevealed', { pos: nextPos, letter: name[nextPos], cost: 500 });
+    // Find unrevealed letter (random, not sequential)
+    const unrevealed = [];
+    for (let i = 0; i < name.length; i++) {
+      if (name[i] !== ' ' && name[i] !== '-' && !ps.revealed.has(i)) {
+        unrevealed.push(i);
+      }
+    }
+    if (unrevealed.length === 0) return;
 
-      // Deduct hint cost from potential score
+    const randIdx = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+    ps.revealed.add(randIdx);
+    ps.hintsUsed++;
+    ps.hintPenalty += 500;
+
+    socket.emit('hintRevealed', {
+      pos: randIdx, letter: name[randIdx],
+      cost: 500, hintsUsed: ps.hintsUsed, maxHints: 3,
+      totalPenalty: ps.hintPenalty
+    });
+
+    // Check if auto-solved
+    let allRevealed = true;
+    for (let i = 0; i < name.length; i++) {
+      if (name[i] !== ' ' && name[i] !== '-' && !ps.revealed.has(i)) {
+        allRevealed = false; break;
+      }
+    }
+    if (allRevealed) {
+      const elapsed = room.roundStartTime ? (Date.now() - room.roundStartTime) / 1000 : 0;
+      const maxTime = room.settings.timerSec || 120;
+      const timeRatio = Math.max(0, 1 - elapsed / maxTime);
+      let score = Math.round(5000 * timeRatio);
+      score = Math.max(0, score - ps.hintPenalty);
       const player = room.players.get(socket.id);
-      if (player) player.hintPenalty = (player.hintPenalty || 0) + 500;
+      player.score += score;
+      player.guesses.push({ round: room.round, dist: 0, score, lat: loc.la, lng: loc.lo });
+      room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: true, score });
+      io.to(room.code).emit('wordSolved', {
+        name: player.name, score, elapsed: Math.round(elapsed),
+        totalScore: player.score, fullWord: name
+      });
+      if (room.guesses.size >= room.players.size) resolveRound(room);
     }
   });
 
