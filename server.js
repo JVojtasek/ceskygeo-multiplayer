@@ -196,6 +196,13 @@ function createRoom(settings) {
   } else if (gameMode === 'duel') {
     // Duel: best of 5 rounds
     locs = shuffle(filteredLocs).slice(0, 5);
+  } else if (gameMode === 'reveal') {
+    // Progressive Reveal: same location selection as classic
+    locs = shuffle(filteredLocs).slice(0, Math.min(settings.rounds || 5, 60));
+  } else if (gameMode === 'speed') {
+    // Speed Round: 10 rounds, 15 seconds, all categories
+    const speedLocs = LOCS.filter(l => settings.cats.includes(l.cat));
+    locs = shuffle(speedLocs).slice(0, 10);
   } else if (gameMode === 'geoword') {
     // GeoWord: filter to only cities and towns (not villages - too obscure)
     const wordLocs = LOCS.filter(l => l.cat === 'city' || l.cat === 'town');
@@ -233,6 +240,11 @@ function createRoom(settings) {
     streakCount: 0,       // for streak
     tour: null,           // for geotour: the tour object
   };
+  // Speed mode: force 10 rounds, 15s timer
+  if (gameMode === 'speed') {
+    room.settings.rounds = 10;
+    room.settings.timerSec = 15;
+  }
   // Store tour reference for geotour mode
   if (gameMode === 'geotour') {
     const tour = GEO_TOURS.find(t => t.id === settings.tourId);
@@ -292,6 +304,44 @@ function getRoomSafeState(room) {
 
 function startRoundTimer(room) {
   room.roundStartTime = Date.now();
+
+  // Progressive Reveal: set up hint interval
+  if (room.gameMode === 'reveal') {
+    room.revealStep = 0;
+    if (room.revealInterval) { clearInterval(room.revealInterval); room.revealInterval = null; }
+    room.revealInterval = setInterval(() => {
+      room.revealStep++;
+      const loc = room.locs[room.round];
+      let hintData = {};
+
+      switch(room.revealStep) {
+        case 1: hintData = { type: 'category', value: loc.cat }; break;
+        case 2: hintData = { type: 'region', value: getRegion(loc.la, loc.lo) }; break;
+        case 3: hintData = { type: 'zoom', lat: loc.la, lng: loc.lo }; break;
+        case 4: hintData = { type: 'letter', value: loc.n[0] }; break;
+        case 5: hintData = { type: 'population', value: loc.cat === 'city' ? '50 000+' : loc.cat === 'town' ? '5 000 – 50 000' : '< 5 000' }; break;
+        case 6: hintData = { type: 'streetview', lat: loc.la, lng: loc.lo, h: loc.h }; break;
+        case 7:
+          hintData = { type: 'answer', value: loc.n };
+          clearInterval(room.revealInterval);
+          room.revealInterval = null;
+          // Auto-resolve - everyone who hasn't guessed gets 0
+          room.players.forEach((p, sid) => {
+            if (!room.guesses.has(sid)) {
+              room.guesses.set(sid, { lat: loc.la, lng: loc.lo, solved: false, score: 0 });
+              if(p) p.guesses.push({ round: room.round, dist: 999, score: 0, lat: loc.la, lng: loc.lo });
+            }
+          });
+          setTimeout(() => resolveRound(room), 2000);
+          break;
+      }
+      hintData.step = room.revealStep;
+      hintData.maxScore = Math.max(0, 5000 - room.revealStep * 800);
+      io.to(room.code).emit('revealHint', hintData);
+    }, 10000);
+    return; // Reveal mode uses its own timing, skip standard timer
+  }
+
   if (room.settings.timerSec <= 0) return;
   if (room.timerHandle) clearTimeout(room.timerHandle);
   room.timerHandle = setTimeout(() => {
@@ -308,12 +358,21 @@ function startRoundTimer(room) {
 
 function resolveRound(room) {
   if (room.timerHandle) { clearTimeout(room.timerHandle); room.timerHandle = null; }
+  if (room.revealInterval) { clearInterval(room.revealInterval); room.revealInterval = null; }
   const loc = room.locs[room.round];
   const results = [];
   const activePlayers = getActivePlayers(room);
 
   activePlayers.forEach((player, sid) => {
-    if (room.gameMode === 'geoword') {
+    if (room.gameMode === 'reveal') {
+      // Reveal mode: score comes from guessReveal event; unsolved players get 0
+      const revGuess = room.guesses.get(sid);
+      const score = revGuess && revGuess.solved ? revGuess.score : 0;
+      if (!revGuess || !revGuess.solved) {
+        player.guesses.push({ round: room.round, dist: 999, score: 0, lat: loc.la, lng: loc.lo });
+      }
+      results.push({ id: sid, name: player.name, dist: 0, score, totalScore: player.score, lat: loc.la, lng: loc.lo, autoSubmit: false, solved: revGuess?.solved || false });
+    } else if (room.gameMode === 'geoword') {
       // GeoWord: score comes from guessWord event; unsolved players get 0
       const gwGuess = room.guesses.get(sid);
       const score = gwGuess && gwGuess.solved ? gwGuess.score : 0;
@@ -412,6 +471,10 @@ function resolveRound(room) {
   }
 
   if (room.gameMode === 'geoword') {
+    roundPayload.cityName = loc.n;
+  }
+
+  if (room.gameMode === 'reveal') {
     roundPayload.cityName = loc.n;
   }
 
@@ -594,7 +657,7 @@ io.on('connection', (socket) => {
       room.duelScore[socket.id] = 0;
     }
 
-    if (settings.solo || gameMode === 'streak' || gameMode === 'daily' || gameMode === 'geoword') {
+    if (settings.solo || gameMode === 'streak' || gameMode === 'daily' || gameMode === 'geoword' || gameMode === 'reveal' || gameMode === 'speed') {
       // Solo modes: auto-start immediately, skip waiting room
       room.phase = 'playing';
       player.ready = true;
@@ -813,6 +876,32 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Progressive Reveal: guess city name
+  socket.on('guessReveal', ({ word }) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.phase !== 'playing' || room.gameMode !== 'reveal') return;
+    if (room.guesses.has(socket.id)) return;
+
+    const loc = room.locs[room.round];
+    const normalize = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+    if (normalize(word) === normalize(loc.n)) {
+      const hintsUsed = room.revealStep || 0;
+      const score = Math.max(0, 5000 - hintsUsed * 800);
+
+      const player = room.players.get(socket.id);
+      player.score += score;
+      player.guesses.push({ round: room.round, dist: 0, score, lat: loc.la, lng: loc.lo });
+      room.guesses.set(socket.id, { lat: loc.la, lng: loc.lo, solved: true, score });
+
+      io.to(room.code).emit('revealSolved', { name: player.name, score, hintsUsed, totalScore: player.score });
+
+      if (room.guesses.size >= room.players.size) resolveRound(room);
+    } else {
+      socket.emit('revealWrong', { word });
+    }
+  });
+
   // Next round (after seeing result)
   socket.on('nextRound', () => {
     const room = rooms.get(socket.data.roomCode);
@@ -820,8 +909,8 @@ io.on('connection', (socket) => {
     const player = room.players.get(socket.id);
     if (player) player.readyNext = true;
 
-    // Solo modes (including streak and daily): advance immediately
-    if (room.settings.solo || room.gameMode === 'streak' || room.gameMode === 'daily') {
+    // Solo modes (including streak, daily, reveal, speed): advance immediately
+    if (room.settings.solo || room.gameMode === 'streak' || room.gameMode === 'daily' || room.gameMode === 'reveal' || room.gameMode === 'speed') {
       room.players.forEach(p => p.readyNext = false);
       advanceRound(room);
       return;
@@ -887,6 +976,7 @@ io.on('connection', (socket) => {
     if (room.players.size === 0) {
       if (room.timerHandle) clearTimeout(room.timerHandle);
       if (room.autoAdvance) clearTimeout(room.autoAdvance);
+      if (room.revealInterval) clearInterval(room.revealInterval);
       rooms.delete(room.code);
       console.log(`[ROOM] ${room.code} deleted (empty)`);
     }

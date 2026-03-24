@@ -282,6 +282,21 @@ button,input{font-family:'Outfit',sans-serif}
 .gw-hint-btn:hover{background:rgba(245,158,11,.25)}
 .gw-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace}
 .gw-category{font-size:11px;color:var(--accent2);background:rgba(168,85,247,.15);padding:3px 10px;border-radius:8px}
+
+/* Progressive Reveal */
+#reveal-panel{position:absolute;top:0;left:0;right:0;z-index:850;background:linear-gradient(180deg,rgba(0,0,0,.92) 0%,rgba(0,0,0,.7) 70%,transparent 100%);padding:16px 20px 40px;display:none;flex-direction:column;align-items:center;gap:10px}
+#reveal-panel.active{display:flex}
+.reveal-hints{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:600px}
+.reveal-hint{padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;animation:fadeInUp .4s ease;display:flex;align-items:center;gap:6px}
+.reveal-hint.category{background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.3);color:#a855f7}
+.reveal-hint.region{background:rgba(34,211,238,.15);border:1px solid rgba(34,211,238,.3);color:var(--accent)}
+.reveal-hint.zoom{background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#10b981}
+.reveal-hint.letter{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:var(--gold)}
+.reveal-hint.population{background:rgba(244,63,94,.15);border:1px solid rgba(244,63,94,.3);color:#f43f5e}
+.reveal-hint.streetview{background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#3b82f6}
+.reveal-hint.answer{background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);color:#10b981;font-size:18px;font-weight:900}
+.reveal-score-indicator{font-size:14px;font-weight:700;color:var(--gold);font-family:'JetBrains Mono',monospace}
+.reveal-input-row{display:flex;gap:8px;align-items:center}
 </style>
 </head>
 <body>
@@ -340,6 +355,16 @@ button,input{font-family:'Outfit',sans-serif}
       <div class="mode-card-icon">🔤</div>
       <div class="mode-card-title">GeoWord</div>
       <div class="mode-card-desc">Vidíš pozici na mapě. Uhádni název města! Čím dřív, tím víc bodů.</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('reveal')">
+      <div class="mode-card-icon">🔍</div>
+      <div class="mode-card-title">Progressive Reveal</div>
+      <div class="mode-card-desc">Nápovědy se odhalují postupně. Čím dřív tipneš, tím víc bodů!</div>
+    </div>
+    <div class="mode-card" onclick="selectMode('speed')">
+      <div class="mode-card-icon">⚡</div>
+      <div class="mode-card-title">Speed Round</div>
+      <div class="mode-card-desc">10 kol, 15 sekund. Žádný Street View — jen mapa. Čistý adrenalin!</div>
     </div>
   </div>
 
@@ -611,6 +636,15 @@ button,input{font-family:'Outfit',sans-serif}
       </div>
       <div class="gw-status" id="gw-status">Hádej název města na mapě</div>
     </div>
+    <div id="reveal-panel" style="display:none">
+      <div class="reveal-hints" id="reveal-hints"></div>
+      <div class="reveal-score-indicator" id="reveal-max-score">Aktuální max: 5 000 bodů</div>
+      <div class="reveal-input-row">
+        <input class="gw-input" id="reveal-input" placeholder="Napiš název města..." maxlength="40" onkeydown="if(event.key==='Enter')submitReveal()"/>
+        <button class="gw-submit" onclick="submitReveal()">Hádat</button>
+      </div>
+      <div class="gw-status" id="reveal-status">Čekej na první nápovědu...</div>
+    </div>
   </div>
   <div id="guess-wrap">
     <div class="map-resize-handle" id="map-resize-handle" title="Táhni pro změnu velikosti"><svg viewBox="0 0 16 16"><path d="M2 14L14 2M6 14L14 6M10 14L14 10"/></svg></div>
@@ -873,7 +907,7 @@ function selectMode(mode) {
   selectedGameMode = mode;
   // Update card selection
   document.querySelectorAll('.mode-card').forEach((c,i) => {
-    const modes = ['classic','duel','battleRoyale','streak','daily','geotour','geoword'];
+    const modes = ['classic','duel','battleRoyale','streak','daily','geotour','geoword','reveal','speed'];
     c.classList.toggle('selected', modes[i] === mode);
   });
 
@@ -939,6 +973,20 @@ function selectMode(mode) {
     if(soloBtn2) soloBtn2.innerHTML = '🔤 Spustit GeoWord →';
     // Hide tolerance slider (not needed for word guessing)
     document.getElementById('s-tol-slider')?.closest('.fld')?.classList.add('hidden');
+  } else if (mode === 'reveal') {
+    mainTabs.classList.add('hidden');
+    soloPane.classList.remove('hidden');
+    if(soloBtn) soloBtn.textContent = '🔍 Spustit Reveal →';
+    // Hide tolerance slider (not needed for reveal)
+    document.getElementById('s-tol-slider')?.closest('.fld')?.classList.add('hidden');
+  } else if (mode === 'speed') {
+    mainTabs.classList.add('hidden');
+    soloPane.classList.remove('hidden');
+    if(soloBtn) soloBtn.textContent = '⚡ Start Speed Round →';
+    // Hide round count, timer, tolerance (all forced for speed)
+    document.getElementById('s-rnd-slider')?.closest('.fld')?.classList.add('hidden');
+    document.getElementById('s-timer-seg')?.closest('.fld')?.classList.add('hidden');
+    document.getElementById('s-tol-slider')?.closest('.fld')?.classList.add('hidden');
   }
 }
 
@@ -957,13 +1005,14 @@ function getSettings(prefix){
   let rounds = parseInt(document.getElementById(`${prefix}-rnd-slider`).value)||5;
   if(selectedGameMode === 'streak') rounds = 30;
   if(selectedGameMode === 'daily') rounds = 5;
+  if(selectedGameMode === 'speed') rounds = 10;
   return {
     mode: state.mode,
     gameMode: selectedGameMode,
     apiKey: document.querySelector(`#${prefix}-apikey`)?.value.trim() || localStorage.getItem('cgeo_key') || '',
     rounds: rounds,
     tol: parseInt(document.getElementById(`${prefix}-tol-slider`).value)||30,
-    timerSec: parseInt(document.querySelector(`#${prefix}-timer-seg .seg.on`)?.dataset.v)||0,
+    timerSec: selectedGameMode === 'speed' ? 15 : parseInt(document.querySelector(`#${prefix}-timer-seg .seg.on`)?.dataset.v)||0,
     cats: getCats(prefix),
     region: document.getElementById(`${prefix}-region-select`)?.value || ''
   };
@@ -1029,6 +1078,53 @@ function initSocket(){
       letterEl.classList.add('revealed');
     }
     playTick(1000, 0.15, 0.1);
+  });
+
+  // Progressive Reveal events
+  socket.on('revealHint', data => {
+    const hints = document.getElementById('reveal-hints');
+    const catNames = {city:'Velké město',town:'Malé město',village:'Vesnice',landmark:'Památka'};
+
+    let label = '';
+    switch(data.type) {
+      case 'category': label = '📂 ' + (catNames[data.value]||data.value); break;
+      case 'region': label = '🗺️ ' + data.value + ' kraj'; break;
+      case 'zoom': label = '🔍 Mapa se přiblížila'; if(gMap)gMap.setView([data.lat,data.lng],11); break;
+      case 'letter': label = '🔤 Začíná na "' + data.value + '"'; break;
+      case 'population': label = '👥 Populace: ' + data.value; break;
+      case 'streetview': label = '📷 Street View načten'; break;
+      case 'answer': label = '✅ Odpověď: ' + data.value; revealSolved = true; break;
+    }
+
+    const chip = document.createElement('div');
+    chip.className = 'reveal-hint ' + data.type;
+    chip.textContent = label;
+    hints.appendChild(chip);
+
+    document.getElementById('reveal-max-score').textContent = 'Aktuální max: ' + data.maxScore.toLocaleString('cs') + ' bodů';
+
+    playTick(600 + data.step * 100, 0.12, 0.08);
+  });
+
+  socket.on('revealSolved', data => {
+    if (data.name === state.myName) {
+      revealSolved = true;
+      document.getElementById('reveal-status').textContent = '✅ Správně! +' + data.score + ' bodů (po ' + data.hintsUsed + ' nápovědách)';
+      document.getElementById('reveal-status').style.color = '#10b981';
+      playCorrect();
+    } else {
+      document.getElementById('reveal-status').textContent = data.name + ' uhádl/a! (+' + data.score + ')';
+    }
+  });
+
+  socket.on('revealWrong', data => {
+    document.getElementById('reveal-status').textContent = '❌ "' + data.word + '" není správně';
+    document.getElementById('reveal-status').style.color = '#f43f5e';
+    playWrong();
+    setTimeout(() => {
+      document.getElementById('reveal-status').textContent = 'Zkus to znovu...';
+      document.getElementById('reveal-status').style.color = '';
+    }, 1500);
   });
 }
 
@@ -1140,6 +1236,19 @@ function onRoundStart(data){
   } else {
     gwPanel.classList.remove('active');
   }
+
+  // Progressive Reveal mode
+  const revPanel = document.getElementById('reveal-panel');
+  if (selectedGameMode === 'reveal') {
+    initReveal();
+  } else {
+    if(revPanel) revPanel.classList.remove('active');
+  }
+
+  // Speed mode: satellite view, expanded map, no street view
+  if (selectedGameMode === 'speed') {
+    initSpeedMode(data);
+  }
 }
 
 let svViewMode='streetview'; // 'streetview' or 'place'
@@ -1153,6 +1262,20 @@ function loadStreetView(data){
   const apiKey=state.apiKey||localStorage.getItem('cgeo_key')||'';
 
   svViewMode = 'streetview';
+
+  // Reveal mode: hide street view initially (revealed as hint #6)
+  if(selectedGameMode === 'reveal') {
+    frame.style.display='none';
+    toggle.style.display='none';
+    overlay.style.display='flex';
+    photo.style.display='none';
+    noPhoto.classList.remove('hidden');
+    document.getElementById('sv-city-name').textContent='🔍 Progressive Reveal';
+    return;
+  }
+
+  // Speed mode: handled by initSpeedMode
+  if(selectedGameMode === 'speed') return;
 
   if(apiKey){
     setSvFrame(apiKey, data.locLat, data.locLng, data.locHeading);
@@ -1369,6 +1492,10 @@ function onRoundResult({loc,results,round,totalRounds,isLast,tourStop,cityName})
   // Hide geoword panel
   document.getElementById('geoword-panel')?.classList.remove('active');
   if (window._gwCircle && gMap) { gMap.removeLayer(window._gwCircle); window._gwCircle = null; }
+  // Hide reveal panel
+  document.getElementById('reveal-panel')?.classList.remove('active');
+  // Clean up speed mode
+  if (selectedGameMode === 'speed') cleanupSpeedMode();
   state.players=results.map(r=>({id:r.id,name:r.name,score:r.totalScore,guessedThisRound:false}));
 
   // Track my score + streak + history
@@ -1382,6 +1509,8 @@ function onRoundResult({loc,results,round,totalRounds,isLast,tourStop,cityName})
   show('s-result');
   if(selectedGameMode === 'geoword') {
     document.getElementById('r-loc-name').innerHTML=`📍 ${loc.n} ${cityName ? '('+cityName+')' : ''} <span class="verdict ok">GeoWord</span>`;
+  } else if(selectedGameMode === 'reveal') {
+    document.getElementById('r-loc-name').innerHTML=`📍 ${loc.n} <span class="verdict ok">Reveal</span>`;
   } else {
     document.getElementById('r-loc-name').innerHTML=`📍 ${loc.n} <span class="verdict ${myResult?.dist<=60?'ok':'bad'}">${myResult?.dist.toFixed(1)} km</span>`;
   }
@@ -1686,8 +1815,11 @@ function show(id){
   ['s-lobby','s-waiting','s-game','s-result','s-final'].forEach(s=>{
     document.getElementById(s).classList.toggle('hidden',s!==id);
   });
-  // Hide geoword panel when leaving game screen
-  if(id!=='s-game') document.getElementById('geoword-panel')?.classList.remove('active');
+  // Hide geoword and reveal panels when leaving game screen
+  if(id!=='s-game') {
+    document.getElementById('geoword-panel')?.classList.remove('active');
+    document.getElementById('reveal-panel')?.classList.remove('active');
+  }
   if(id==='s-game'&&gMap)setTimeout(()=>{gMap.invalidateSize();gMap.setView([49.75,15.6],7);},120);
 }
 
@@ -1884,6 +2016,80 @@ function answerQuiz(el, correct, chosen) {
     setXP(getXP() + 200);
   } else {
     playWrong();
+  }
+}
+
+// ══ PROGRESSIVE REVEAL ══
+let revealSolved = false;
+
+function initReveal() {
+  revealSolved = false;
+  document.getElementById('reveal-hints').innerHTML = '';
+  document.getElementById('reveal-max-score').textContent = 'Aktuální max: 5 000 bodů';
+  document.getElementById('reveal-input').value = '';
+  document.getElementById('reveal-status').textContent = 'Čekej na první nápovědu...';
+  document.getElementById('reveal-status').style.color = '';
+  document.getElementById('reveal-panel').classList.add('active');
+}
+
+function submitReveal() {
+  if (revealSolved) return;
+  const input = document.getElementById('reveal-input');
+  const word = input.value.trim();
+  if (!word) return;
+  socket.emit('guessReveal', { word });
+  input.value = '';
+}
+
+// ══ SPEED MODE SATELLITE LAYER ══
+let speedSatelliteLayer = null;
+
+function initSpeedMode(data) {
+  // Hide street view entirely
+  const frame = document.getElementById('sv-frame');
+  const overlay = document.getElementById('sv-overlay');
+  const toggle = document.getElementById('sv-toggle');
+  frame.style.display = 'none';
+  toggle.style.display = 'none';
+  overlay.style.display = 'flex';
+  document.getElementById('sv-nophoto').classList.remove('hidden');
+  document.getElementById('sv-city-name').textContent = CAT_LABELS[data.locCat] || data.locCat;
+
+  // Expand guess map and add satellite tiles
+  const wrap = document.getElementById('guess-wrap');
+  wrap.classList.add('expanded');
+  wrap.style.width = '100%';
+  wrap.style.height = '100%';
+  wrap.style.bottom = '0';
+  wrap.style.right = '0';
+  wrap.style.borderRadius = '0';
+  wrap.style.border = 'none';
+
+  setTimeout(() => {
+    if (gMap) {
+      // Remove default tile layer and add satellite
+      gMap.eachLayer(l => { if (l instanceof L.TileLayer) gMap.removeLayer(l); });
+      speedSatelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19
+      }).addTo(gMap);
+      gMap.setView([data.locLat, data.locLng], 14);
+      gMap.invalidateSize();
+    }
+  }, 150);
+}
+
+function cleanupSpeedMode() {
+  const wrap = document.getElementById('guess-wrap');
+  wrap.style.width = '';
+  wrap.style.height = '';
+  wrap.style.bottom = '';
+  wrap.style.right = '';
+  wrap.style.borderRadius = '';
+  wrap.style.border = '';
+  wrap.classList.remove('expanded');
+  if (speedSatelliteLayer && gMap) {
+    gMap.removeLayer(speedSatelliteLayer);
+    speedSatelliteLayer = null;
   }
 }
 
