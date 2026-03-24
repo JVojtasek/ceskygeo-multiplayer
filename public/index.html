@@ -945,6 +945,10 @@ function onRoundResult({loc,results,round,totalRounds,isLast}){
         const color=COLORS[i%COLORS.length];
         L.marker([r.lat,r.lng],{icon:mkPin(color,i+1)}).addTo(rMap).bindPopup(`${r.name}: ${r.dist.toFixed(1)} km · ${r.score.toLocaleString('cs')} bodů`);
         L.polyline([[loc.la,loc.lo],[r.lat,r.lng]],{color,weight:2,dashArray:'7 4',opacity:.75}).addTo(rMap);
+        // Distance label at midpoint of the line
+        const midLat=(loc.la+r.lat)/2, midLng=(loc.lo+r.lng)/2;
+        const distTxt=r.dist<1?(r.dist*1000).toFixed(0)+' m':r.dist.toFixed(1)+' km';
+        L.marker([midLat,midLng],{icon:L.divIcon({html:`<div style="background:rgba(0,0,0,.8);color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid ${color};text-shadow:none;font-family:'JetBrains Mono',monospace">${distTxt}</div>`,iconAnchor:[30,12],className:''})}).addTo(rMap);
         pts.push([r.lat,r.lng]);
       });
       rMap.flyToBounds(L.latLngBounds(pts).pad(.3),{duration:1.2});
@@ -1061,6 +1065,9 @@ function onGameFinished({finalScores,locs}){
       if(rh && rh.lat!=null){
         L.marker([rh.lat,rh.lng],{icon:mkPin('#f43f5e','?')}).addTo(fMap);
         L.polyline([[loc.la,loc.lo],[rh.lat,rh.lng]],{color:'#f43f5e',weight:1.5,dashArray:'5 4',opacity:.5}).addTo(fMap);
+        const mLa=(loc.la+rh.lat)/2,mLo=(loc.lo+rh.lng)/2;
+        const dTxt=rh.dist<1?(rh.dist*1000).toFixed(0)+' m':rh.dist.toFixed(1)+' km';
+        L.marker([mLa,mLo],{icon:L.divIcon({html:`<div style="background:rgba(0,0,0,.8);color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;border:1px solid #f43f5e;font-family:'JetBrains Mono',monospace">${dTxt}</div>`,iconAnchor:[25,10],className:''})}).addTo(fMap);
       }
     });
   },60);
